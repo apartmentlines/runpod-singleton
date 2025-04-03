@@ -1,0 +1,105 @@
+# Sample Configuration for runpod-singleton.py
+# This file provides a template for configuring the RunPod singleton manager.
+# Copy this file to your own config.yaml and modify the values as needed.
+# Options with defaults are commented out with their default value shown.
+
+# --- Required Parameters ---
+
+# A unique name for your pod. The script will manage a single pod with this name.
+pod_name: my-persistent-pod
+
+# The Docker image to use for the pod.
+image_name: runpod/base:0.0.0 # Replace with your desired image
+
+# List of RunPod GPU type IDs to try, in order of preference.
+# The script will attempt to create a pod with the first available type.
+# Find available GPU type IDs via RunPod documentation or API.
+# Example: "NVIDIA GeForce RTX 3090", "NVIDIA A100 80GB PCIe", etc.
+gpu_types:
+  - "NVIDIA GeForce RTX 4090" # Replace with your preferred GPU type(s)
+  - "NVIDIA GeForce RTX 3090"
+# - "ANOTHER_GPU_TYPE_ID"
+
+# --- Core Optional Parameters ---
+
+# Cloud type: SECURE, COMMUNITY, or ALL. Determines where to look for GPUs.
+# cloud_type: ALL
+
+# Number of GPUs to request for the pod.
+# gpu_count: 1
+
+# Size of the container disk in GB. This is ephemeral storage.
+# container_disk_in_gb: null
+
+# Command to run inside the Docker container when it starts.
+# Replace with your actual command or leave empty if the image handles it (e.g., via CMD/ENTRYPOINT).
+# Example: "python my_script.py --port 8080"
+# docker_args: ""
+
+# Ports to expose from the container, comma-separated. Format: "port/protocol".
+# Example: "8888/tcp,8080/http,22/tcp"
+# ports: null
+
+# Environment variables to set inside the container.
+# Use standard YAML dictionary format.
+# For example:
+# env:
+#   MY_VARIABLE: "my_value"
+#   ANOTHER_VAR: "another_value"
+#   # To load a value from an environment variable:
+#   ENV_VARIABLE: !ENV ${ENV_VAR_NAME}
+# env: null
+
+# --- Advanced Optional Parameters ---
+
+# Whether the pod should support having a public IP address assigned.
+# support_public_ip: true
+
+# Whether to automatically start an SSH server on the pod.
+# start_ssh: true
+
+# Specific data center ID to target (e.g., "US-EAST-1"). Overrides cloud_type preference if specified.
+# data_center_id: null
+
+# Specific country code to target (e.g., "US"). Narrows down data center search.
+# country_code: null
+
+# Size of the persistent volume in GB. Set to > 0 to attach a persistent volume.
+# volume_in_gb: 0
+
+# Mount path for the persistent volume inside the container.
+# volume_mount_path: /runpod-volume
+
+# Minimum number of vCPUs required for the pod.
+# min_vcpu_count: 1
+
+# Minimum amount of RAM in GB required for the pod.
+# min_memory_in_gb: 1
+
+# RunPod template ID to use for creating the pod. Overrides many other settings if provided.
+# template_id: null
+
+# ID of an existing network volume to attach to the pod.
+# network_volume_id: null
+
+# List of allowed CUDA versions. Useful if your image requires a specific version.
+# For example:
+# allowed_cuda_versions:
+#   - "11.8"
+#   - "12.1"
+# allowed_cuda_versions: null
+
+# Minimum required download speed in Mbps for the host machine.
+# min_download: null
+
+# Minimum required upload speed in Mbps for the host machine.
+# min_upload: null
+
+# --- Retry Settings for Pod Creation ---
+
+# Number of times to retry creating a pod with EACH GPU type if the initial attempt fails.
+# For example, if set to 3, it will try GPU type 1 up to 3 times before moving to GPU type 2.
+# create_gpu_retries: 1
+
+# Seconds to wait before retrying pod creation with the SAME GPU type after a failure.
+# create_retry_wait_seconds: 10

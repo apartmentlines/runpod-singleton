@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "runpod-singleton"
+version = "0.1.0"
+description = "Manage a single runpod instance by name."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name="Chad Phillips", email="chad@apartmentlines.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pyyaml",
+    "pyaml-env",
+    "runpod",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["runpod_singleton"]
+
+[tool.setuptools.package-data]
+srt_labeler = [
+    "lwe/config/**/*",
+    "lwe/data/",
+]
+
+[project.scripts]
+runpod-singleton = "runpod_singleton.singleton:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "pyright",
+]
