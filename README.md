@@ -34,8 +34,10 @@ pip install -e .[dev]
 The primary way to use the tool is via the command-line script `runpod-singleton`.
 
 ```bash
-runpod-singleton <path_to_config.yaml> [--api-key YOUR_API_KEY] [--debug]
+runpod-singleton <path_to_config.yaml> [--api-key YOUR_API_KEY] [--stop] [--terminate] [--debug]
 ```
+
+**Note:** If both `--stop` and `--terminate` are provided, the script will first attempt to stop any running matching pods, and then attempt to terminate all matching pods before exiting.
 
 For more details, run with the `--help` argument.
 

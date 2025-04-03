@@ -25,25 +25,6 @@ from .logger import Logger
 from . import constants as const
 
 
-def load_config(config_path: Path) -> dict[str, Any]:
-    """
-    Loads the YAML configuration file.
-
-    :param config_path: Path to the configuration file.
-    :type config_path: Path
-    :return: Dictionary containing the configuration.
-    :rtype: Dict[str, Any]
-    :raises FileNotFoundError: If the config file does not exist.
-    :raises yaml.YAMLError: If the config file is invalid YAML.
-    """
-    try:
-        return parse_config(config_path)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Config file '{config_path}' not found.")
-    except yaml.YAMLError as e:
-        raise yaml.YAMLError(f"Invalid YAML in config file '{config_path}': {e}")
-
-
 class RunpodSingletonManager:
     """
     Manages the lifecycle of a named RunPod pod instance.
@@ -54,7 +35,7 @@ class RunpodSingletonManager:
     """
 
     def __init__(
-        self, config: dict[str, Any], api_key: str | None, debug: bool = False
+        self, config: dict[str, Any], api_key: str | None, stop: bool = False, terminate: bool = False, debug: bool = False
     ):
         """
         Initializes the RunpodSingletonManager.
@@ -63,11 +44,17 @@ class RunpodSingletonManager:
         :type config: Dict[str, Any]
         :param api_key: The RunPod API key.
         :type api_key: str | None
+        :param stop: Flag to stop pods.
+        :type stop: bool
+        :param terminate: Flag to terminate pods.
+        :type terminate: bool
         :param debug: Flag to enable debug logging.
         :type debug: bool
         """
         self.config: dict[str, Any] = config
         self.set_api_key(api_key)
+        self.stop: bool = stop
+        self.terminate: bool = terminate
         self.debug: bool = debug
         self.pod_name: str = config[const.POD_NAME]
         self.log: logging.Logger = Logger(self.__class__.__name__, debug=self.debug)
@@ -106,6 +93,31 @@ class RunpodSingletonManager:
                 return pod
         self.log.info(f"Pod with name '{self.pod_name}' not found.")
         return None
+
+    def _get_all_pods_by_name(self) -> list[dict[str, Any]]:
+        """
+        Finds all pods matching the configured name.
+
+        :return: A list of pod dictionaries matching the name.
+        :rtype: list[dict[str, Any]]
+        """
+        self.log.debug(f"Searching for all pods with name '{self.pod_name}'.")
+        try:
+            all_pods = runpod.get_pods()
+            matching_pods = [
+                pod
+                for pod in all_pods
+                if pod.get(const.POD_NAME_API) == self.pod_name
+            ]
+            self.log.info(
+                f"Found {len(matching_pods)} pods matching name '{self.pod_name}'."
+            )
+            if self.debug and matching_pods:
+                self.log.debug(f"Matching pod IDs: {[p.get(const.POD_ID) for p in matching_pods]}")
+            return matching_pods
+        except Exception as e:
+            self.log.error(f"Failed to retrieve pods from RunPod API: {e}")
+            return []
 
     def _create_pod(self, gpu_type_id: str) -> str | None:
         """
@@ -197,6 +209,26 @@ class RunpodSingletonManager:
             return True
         except Exception as e:
             self.log.error(f"Error starting pod {pod_id}: {e}")
+            return False
+
+    def _stop_pod(self, pod_id: str) -> bool:
+        """
+        Attempts to stop a running pod.
+
+        :param pod_id: The ID of the pod to stop.
+        :type pod_id: str
+        :return: True if the stop command was likely successful, False otherwise.
+        :rtype: bool
+        """
+        self.log.info(f"Attempting to stop pod with ID '{pod_id}'...")
+        try:
+            response = runpod.stop_pod(pod_id)
+            if self.debug:
+                pprint.pprint(response)
+            self.log.debug(f"Pod stop command sent for pod ID '{pod_id}'.")
+            return True
+        except Exception as e:
+            self.log.error(f"Error stopping pod {pod_id}: {e}")
             return False
 
     def _terminate_pod(self, pod_id: str) -> None:
@@ -334,7 +366,8 @@ class RunpodSingletonManager:
         """
         self.log.info("Starting persistent pod management...")
         try:
-            pods = runpod.get_pods()
+            # NOTE: get_pods() has a bad return signature, thus the linter ignore below.
+            pods: list[dict[str, Any]] = runpod.get_pods()  # pyright: ignore[reportAssignmentType]
             self.log.debug(f"Retrieved {len(pods)} pods from RunPod API.")
         except Exception as e:
             self.log.critical(f"Failed to retrieve pods from RunPod API: {e}")
@@ -349,11 +382,83 @@ class RunpodSingletonManager:
                 )
         return self._attempt_new_pod_creation()
 
+    def perform_cleanup_actions(self) -> None:
+        """
+        Performs stop and/or terminate actions on pods matching the configured name.
 
-def main() -> None:
+        Stop actions are performed first on running pods.
+        Terminate actions are performed on all matching pods regardless of state.
+        """
+        self.log.info("Performing cleanup actions...")
+        matching_pods = self._get_all_pods_by_name()
+
+        if not matching_pods:
+            self.log.info("No pods found matching the name. No cleanup actions needed.")
+            return
+
+        # --- Stop Action ---
+        if self.stop:
+            self.log.info(f"Processing --stop action for pod name '{self.pod_name}'.")
+            running_pods_to_stop = [
+                pod
+                for pod in matching_pods
+                if pod.get(const.POD_STATUS) == const.POD_STATUS_RUNNING
+            ]
+            if running_pods_to_stop:
+                self.log.info(
+                    f"Found {len(running_pods_to_stop)} running pods to stop."
+                )
+                for pod in running_pods_to_stop:
+                    pod_id = pod[const.POD_ID]
+                    self._stop_pod(pod_id)
+            else:
+                self.log.info("No running pods found matching the name to stop.")
+
+        # --- Terminate Action ---
+        if self.terminate:
+            self.log.info(
+                f"Attempting to terminate all {len(matching_pods)} pods matching the name '{self.pod_name}'."
+            )
+            for pod in matching_pods:
+                pod_id = pod[const.POD_ID]
+                self._terminate_pod(pod_id)
+
+    def run(self) -> None:
+        if self.stop or self.terminate:
+            try:
+                self.perform_cleanup_actions()
+                self.log.info("Cleanup actions completed.")
+                sys.exit(const.EXIT_SUCCESS)
+            except Exception as e:
+                self.log.critical(
+                    f"An unexpected error occurred during cleanup actions: {e}",
+                    exc_info=self.debug,
+                )
+                sys.exit(const.EXIT_FAILURE)
+
+        # Default action: manage the singleton pod
+        try:
+            success = self.manage()
+            if success:
+                self.log.info("Singleton pod management completed successfully.")
+                sys.exit(const.EXIT_SUCCESS)
+            else:
+                self.log.error("Pod management failed.")
+                sys.exit(const.EXIT_FAILURE)
+        except Exception as e:
+            self.log.critical(
+                f"An unexpected error occurred during pod management: {e}",
+                exc_info=self.debug,
+            )
+            sys.exit(const.EXIT_FAILURE)
+
+
+def parse_args() -> argparse.Namespace:
     """
-    Main entry point for the script. Parses arguments, loads config,
-    and runs the pod management logic.
+    Parse command-line arguments.
+
+    :return: Parsed arguments.
+    :rtype: Namespace
     """
     parser = argparse.ArgumentParser(
         description="Manage a persistent RunPod singleton instance."
@@ -366,33 +471,48 @@ def main() -> None:
         type=str,
         help="RunPod API key (can also be set via RUNPOD_API_KEY environment variable).",
     )
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
-    args = parser.parse_args()
-
-    try:
-        config = load_config(args.config)
-    except Exception as e:
-        print(f"Failed to load configuration: {e}")
-        sys.exit(const.EXIT_FAILURE)
-
-    manager = RunpodSingletonManager(
-        config=config, api_key=args.api_key, debug=args.debug
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Stop all running pods matching the configured name and exit.",
     )
+    parser.add_argument(
+        "--terminate",
+        action="store_true",
+        help="Terminate all pods matching the configured name and exit.",
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    return parser.parse_args()
 
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    """
+    Loads the YAML configuration file.
+
+    :param config_path: Path to the configuration file.
+    :type config_path: Path
+    :return: Dictionary containing the configuration.
+    :rtype: Dict[str, Any]
+    :raises FileNotFoundError: If the config file does not exist.
+    :raises yaml.YAMLError: If the config file is invalid YAML.
+    """
     try:
-        success = manager.manage()
-        if success:
-            manager.log.info("Pod management completed successfully.")
-            sys.exit(const.EXIT_SUCCESS)
-        else:
-            manager.log.error("Pod management failed.")
-            sys.exit(const.EXIT_FAILURE)
-    except Exception as e:
-        manager.log.critical(
-            f"An unexpected error occurred during pod management: {e}",
-            exc_info=args.debug,
-        )
-        sys.exit(const.EXIT_FAILURE)
+        return parse_config(config_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Config file '{config_path}' not found.")
+    except yaml.YAMLError as e:
+        raise yaml.YAMLError(f"Invalid YAML in config file '{config_path}': {e}")
+
+
+def main() -> None:
+    """
+    Main entry point for the script. Parses arguments, loads config,
+    and runs the pod management logic.
+    """
+    args = parse_args()
+    config = load_config(args.config)
+    manager = RunpodSingletonManager(config, args.api_key, args.stop, args.terminate, args.debug)
+    manager.run()
 
 
 if __name__ == "__main__":
