@@ -54,6 +54,57 @@ runpod-singleton config.yaml --api-key $RUNPOD_API_KEY --debug
 
 The script will exit with code `0` if a pod matching the configuration is successfully running at the end of the execution, and `1` otherwise.
 
+### Programmatic Usage
+
+You can also use the `RunpodSingletonManager` class directly within your Python scripts for more complex integrations or automation tasks.
+
+**Example:**
+
+```python
+import os
+from pathlib import Path
+from runpod_singleton import RunpodSingletonManager
+
+# Define the path to your configuration file.
+config_file_path = Path("path/to/your/config.yaml")
+
+api_key = os.getenv("MY_API_KEY")
+
+# --- Manage Mode (Default: ensure pod is running) ---
+print("Attempting to manage the pod...")
+manager = RunpodSingletonManager(
+    config_path=config_file_path,
+    # If no api_key argument is provided, the RUNPOD_API_KEY environment variable will be used.
+    api_key=api_key,
+    # stop=False, # Default
+    # terminate=False, # Default
+    debug=True # Optional: enable debug logging
+)
+result = manager.run() # Returns pod ID on success, False on failure
+
+if result:
+    print(f"Pod management successful. Pod ID: {result}")
+else:
+    print(f"Pod management failed.")
+
+# --- Cleanup Mode (Example: Stop and Terminate) ---
+print("\nAttempting to stop and terminate matching pods...")
+cleanup_manager = RunpodSingletonManager(
+    config_path=config_file_path,
+    api_key=api_key,
+    stop=True,
+    terminate=True,
+    debug=True
+)
+cleanup_result = cleanup_manager.run() # Returns True on success, False on failure
+
+if cleanup_result:
+    print("Cleanup actions completed successfully.")
+else:
+    print(f"Cleanup actions failed.")
+```
+
+
 ## Configuration
 
 The behavior of the script is controlled by a YAML configuration file. See [sample.config.yaml](sample.config.yaml) for a detailed template with explanations for all available options.
