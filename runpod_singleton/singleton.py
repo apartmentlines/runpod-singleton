@@ -25,380 +25,174 @@ from .logger import Logger
 from . import constants as const
 
 
-class RunpodSingletonManager:
+class RunpodApiClient:
     """
-    Manages the lifecycle of a named RunPod pod instance.
-
-    This class handles checking for existing pods, validating their state,
-    starting stopped pods, terminating invalid pods, and creating new pods
-    based on the provided configuration.
+    Facade/Wrapper for runpod SDK interactions. Isolates the external dependency.
     """
-
-    def __init__(
-        self, config: dict[str, Any], api_key: str | None, stop: bool = False, terminate: bool = False, debug: bool = False
-    ):
+    def __init__(self, api_key: str):
         """
-        Initializes the RunpodSingletonManager.
-
-        :param config: Dictionary containing the pod configuration.
-        :type config: Dict[str, Any]
-        :param api_key: The RunPod API key.
-        :type api_key: str | None
-        :param stop: Flag to stop pods.
-        :type stop: bool
-        :param terminate: Flag to terminate pods.
-        :type terminate: bool
-        :param debug: Flag to enable debug logging.
-        :type debug: bool
-        """
-        self.config: dict[str, Any] = config
-        self.set_api_key(api_key)
-        self.stop: bool = stop
-        self.terminate: bool = terminate
-        self.debug: bool = debug
-        self.pod_name: str = config[const.POD_NAME]
-        self.log: logging.Logger = Logger(self.__class__.__name__, debug=self.debug)
-        self.log.debug("RunpodSingletonManager initialized.")
-        self.log.info(f"Target Pod Name: {self.pod_name}")
-
-    def set_api_key(self, api_key: str | None) -> None:
-        """
-        Sets the RunPod API key.
+        Initializes the API client and sets the RunPod API key.
 
         :param api_key: The RunPod API key.
-        :type api_key: str | None
+        :type api_key: str
         """
-        api_key = api_key or os.environ.get("RUNPOD_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "RunPod API key not provided via argument or RUNPOD_API_KEY environment variable."
-            )
-        runpod.api_key = api_key
+        self.api_key: str = api_key
+        runpod.api_key = self.api_key
 
-    def _get_pod_by_name(self, pods: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def get_pods(self) -> list[dict[str, Any]]:
         """
-        Finds a pod by name from a list of pods.
+        Retrieves a list of all pods for the current user.
 
-        :param pods: List of pod dictionaries from the RunPod API.
-        :type pods: List[Dict[str, Any]]
-        :return: The matching pod dictionary or None if not found.
-        :rtype: Dict[str, Any] | None
-        """
-        self.log.info(
-            f"Searching for pod with name '{self.pod_name}' in {len(pods)} pods."
-        )
-        for pod in pods:
-            if pod.get(const.POD_NAME_API) == self.pod_name:
-                self.log.debug(f"Found pod: {pod.get(const.POD_ID)}")
-                return pod
-        self.log.info(f"Pod with name '{self.pod_name}' not found.")
-        return None
-
-    def _get_all_pods_by_name(self) -> list[dict[str, Any]]:
-        """
-        Finds all pods matching the configured name.
-
-        :return: A list of pod dictionaries matching the name.
+        :return: A list of pod dictionaries.
         :rtype: list[dict[str, Any]]
         """
-        self.log.debug(f"Searching for all pods with name '{self.pod_name}'.")
-        try:
-            all_pods = runpod.get_pods()
-            matching_pods = [
-                pod
-                for pod in all_pods
-                if pod.get(const.POD_NAME_API) == self.pod_name
-            ]
-            self.log.info(
-                f"Found {len(matching_pods)} pods matching name '{self.pod_name}'."
-            )
-            if self.debug and matching_pods:
-                self.log.debug(f"Matching pod IDs: {[p.get(const.POD_ID) for p in matching_pods]}")
-            return matching_pods
-        except Exception as e:
-            self.log.error(f"Failed to retrieve pods from RunPod API: {e}")
-            return []
+        # NOTE: get_pods() has a bad return signature, thus the linter ignore below.
+        return runpod.get_pods()  # pyright: ignore[reportReturnType]
 
-    def _create_pod(self, gpu_type_id: str) -> str | None:
+    def get_pod(self, pod_id: str) -> dict[str, Any]:
         """
-        Attempts to create a new pod with the specified GPU type.
+        Retrieves details for a specific pod.
 
-        :param gpu_type_id: The GPU type ID to use for creation.
-        :type gpu_type_id: str
-        :return: The ID of the newly created pod if successful, None otherwise.
-        :rtype: str | None
-        """
-        self.log.info(
-            f"Attempting to create pod '{self.pod_name}' with GPU type '{gpu_type_id}'..."
-        )
-        try:
-            response = runpod.create_pod(
-                name=self.pod_name,
-                image_name=self.config[const.IMAGE_NAME],
-                gpu_type_id=gpu_type_id,
-                cloud_type=self.config.get(const.CLOUD_TYPE, const.DEFAULT_CLOUD_TYPE),
-                support_public_ip=self.config.get(
-                    const.SUPPORT_PUBLIC_IP, const.DEFAULT_SUPPORT_PUBLIC_IP
-                ),
-                start_ssh=self.config.get(const.START_SSH, const.DEFAULT_START_SSH),
-                data_center_id=self.config.get(const.DATA_CENTER_ID),
-                country_code=self.config.get(const.COUNTRY_CODE),
-                gpu_count=self.config.get(const.GPU_COUNT, const.DEFAULT_GPU_COUNT),
-                volume_in_gb=self.config.get(
-                    const.VOLUME_IN_GB, const.DEFAULT_VOLUME_IN_GB
-                ),
-                container_disk_in_gb=self.config.get(const.CONTAINER_DISK_IN_GB),
-                min_vcpu_count=self.config.get(
-                    const.MIN_VCPU_COUNT, const.DEFAULT_MIN_VCPU_COUNT
-                ),
-                min_memory_in_gb=self.config.get(
-                    const.MIN_MEMORY_IN_GB, const.DEFAULT_MIN_MEMORY_IN_GB
-                ),
-                docker_args=self.config.get(
-                    const.DOCKER_ARGS, const.DEFAULT_DOCKER_ARGS
-                ),
-                ports=self.config.get(const.PORTS),
-                volume_mount_path=self.config.get(
-                    const.VOLUME_MOUNT_PATH, const.DEFAULT_VOLUME_MOUNT_PATH
-                ),
-                env=self.config.get(const.ENV),
-                template_id=self.config.get(const.TEMPLATE_ID),
-                network_volume_id=self.config.get(const.NETWORK_VOLUME_ID),
-                allowed_cuda_versions=self.config.get(const.ALLOWED_CUDA_VERSIONS),
-                min_download=self.config.get(const.MIN_DOWNLOAD),
-                min_upload=self.config.get(const.MIN_UPLOAD),
-            )
-            if self.debug:
-                pprint.pprint(response)
-            new_pod_id = response.get(const.POD_ID)
-            if new_pod_id:
-                self.log.info(
-                    f"Pod creation initiated successfully. New Pod ID: {new_pod_id}"
-                )
-                return new_pod_id
-            else:
-                self.log.error(
-                    f"Pod creation request failed or did not return an ID. Response: {response}"
-                )
-                return None
-        except Exception as e:
-            self.log.error(f"Error creating pod with GPU {gpu_type_id}: {e}")
-            return None
-
-    def _start_pod(self, pod_id: str) -> bool:
-        """
-        Attempts to start (resume) a stopped pod.
-
-        :param pod_id: The ID of the pod to start.
+        :param pod_id: The ID of the pod to retrieve.
         :type pod_id: str
-        :return: True if the start command was successful, False otherwise.
-        :rtype: bool
+        :return: A dictionary containing pod details.
+        :rtype: dict[str, Any]
         """
-        self.log.info(f"Attempting to start pod with ID '{pod_id}'...")
-        try:
-            # Runpod resume_pod doesn't return detailed success/failure in the same way as create
-            # We assume success if no exception is raised, but will validate GPU attachment later.
-            self.log.info(f"Resuming pod'{pod_id}'.")
-            response = runpod.resume_pod(
-                pod_id,
-                gpu_count=self.config.get(const.GPU_COUNT, const.DEFAULT_GPU_COUNT),
-            )
-            if self.debug:
-                pprint.pprint(response)
-            self.log.debug(f"Pod resume command sent for pod ID '{pod_id}'.")
-            return True
-        except Exception as e:
-            self.log.error(f"Error starting pod {pod_id}: {e}")
-            return False
+        return runpod.get_pod(pod_id)
 
-    def _stop_pod(self, pod_id: str) -> bool:
+    def create_pod(self, **kwargs: Any) -> dict[str, Any]:
         """
-        Attempts to stop a running pod.
+        Creates a new pod with the specified configuration.
+
+        Accepts keyword arguments corresponding to the parameters of runpod.create_pod.
+
+        :param kwargs: Pod configuration parameters.
+        :return: A dictionary containing the response from the RunPod API.
+        :rtype: dict[str, Any]
+        """
+        return runpod.create_pod(**kwargs)
+
+    def resume_pod(self, pod_id: str, gpu_count: int = 1) -> dict[str, Any]:
+        """
+        Resumes a stopped pod.
+
+        :param pod_id: The ID of the pod to resume.
+        :type pod_id: str
+        :param gpu_count: The number of GPUs to attach upon resuming.
+        :type gpu_count: int
+        :return: A dictionary containing the response from the RunPod API.
+        :rtype: dict[str, Any]
+        """
+        return runpod.resume_pod(pod_id, gpu_count=gpu_count)
+
+    def stop_pod(self, pod_id: str) -> dict[str, Any]:
+        """
+        Stops a running pod.
 
         :param pod_id: The ID of the pod to stop.
         :type pod_id: str
-        :return: True if the stop command was likely successful, False otherwise.
-        :rtype: bool
+        :return: A dictionary containing the response from the RunPod API.
+        :rtype: dict[str, Any]
         """
-        self.log.info(f"Attempting to stop pod with ID '{pod_id}'...")
-        try:
-            response = runpod.stop_pod(pod_id)
-            if self.debug:
-                pprint.pprint(response)
-            self.log.debug(f"Pod stop command sent for pod ID '{pod_id}'.")
-            return True
-        except Exception as e:
-            self.log.error(f"Error stopping pod {pod_id}: {e}")
-            return False
+        return runpod.stop_pod(pod_id)
 
-    def _terminate_pod(self, pod_id: str) -> None:
+    def terminate_pod(self, pod_id: str) -> dict[str, Any]:
         """
         Terminates a pod.
 
         :param pod_id: The ID of the pod to terminate.
         :type pod_id: str
+        :return: A dictionary containing the response from the RunPod API.
+        :rtype: dict[str, Any]
         """
-        self.log.warning(f"Terminating pod with ID '{pod_id}'...")
-        try:
-            response = runpod.terminate_pod(pod_id)
-            if self.debug:
-                pprint.pprint(response)
-            self.log.info(f"Pod {pod_id} terminated successfully.")
-        except Exception as e:
-            self.log.error(f"Error terminating pod {pod_id}: {e}")
+        # NOTE: terminate_pod() has a bad return signature, thus the linter ignore below.
+        return runpod.terminate_pod(pod_id)  # pyright: ignore[reportReturnType]
 
-    def _handle_existing_pod(self, pod: dict[str, Any]) -> bool:
+
+class PodLifecycleManager:
+    """
+    Encapsulates the core logic for managing and cleaning up pods based on
+    configuration and state. Uses RunpodApiClient for API interactions.
+    """
+
+    def __init__(
+        self,
+        client: RunpodApiClient,
+        config: dict[str, Any],
+        logger: logging.Logger,
+        stop: bool,
+        terminate: bool,
+    ):
         """
-        Manages an existing pod based on its status and GPU attachment.
+        Initializes the PodLifecycleManager.
 
-        :param pod: The dictionary representing the existing pod.
-        :type pod: Dict[str, Any]
-        :return: True if the pod is now in the desired state (running with GPUs), False otherwise.
-        :rtype: bool
+        :param client: An initialized RunpodApiClient instance.
+        :type client: RunpodApiClient
+        :param config: The loaded application configuration dictionary.
+        :type config: dict[str, Any]
+        :param logger: A configured logger instance.
+        :type logger: logging.Logger
+        :param stop: Flag indicating if stop actions should be performed.
+        :type stop: bool
+        :param terminate: Flag indicating if terminate actions should be performed.
+        :type terminate: bool
         """
-        pod_id = pod[const.POD_ID]
-        pod_status = pod.get(const.POD_STATUS)
-        self.log.info(
-            f"Pod '{self.pod_name}' (ID: {pod_id}) already exists with status: {pod_status}"
-        )
+        self.client: RunpodApiClient = client
+        self.config: dict[str, Any] = config
+        self.log: logging.Logger = logger
+        self.stop: bool = stop
+        self.terminate: bool = terminate
+        self.pod_name: str = config[const.POD_NAME]
+        self.gpu_types: list[str] = config.get(const.GPU_TYPES, [])
+        self.gpu_count: int = config.get(const.GPU_COUNT, const.DEFAULT_GPU_COUNT)
+        self.create_retries: int = config.get("create_gpu_retries", const.DEFAULT_CREATE_GPU_RETRIES)
+        self.create_wait: int = config.get("create_retry_wait_seconds", const.DEFAULT_CREATE_RETRY_WAIT_SECONDS)
 
-        if pod_status == const.POD_STATUS_RUNNING:
-            self.log.info("Pod is running, no action needed.")
-            return True
-        # Pod is stopped or in an intermediate state
-        else:
-            self.log.info(f"Pod status is '{pod_status}'. Attempting to start...")
-            if self._start_pod(pod_id):
-                try:
-                    updated_pod_info = runpod.get_pod(pod_id)
-                    if self.debug:
-                        pprint.pprint(updated_pod_info)
-                    if updated_pod_info.get(const.POD_STATUS) == const.POD_STATUS_RUNNING:
-                        self.log.info("Pod started successfully with GPUs attached.")
-                        return True
-                    else:
-                        self.log.warning(
-                            "Pod started but is not running. Terminating..."
-                        )
-                        self._terminate_pod(pod_id)
-                        return False
-                except Exception as e:
-                    self.log.error(
-                        f"Failed to get updated pod info for {pod_id} after start attempt: {e}"
-                    )
-                    # Terminate if we can't verify state
-                    self._terminate_pod(pod_id)
-                    return False
-            else:
-                self.log.error(
-                    "Failed to send start command for the pod. Terminating..."
-                )
-                # Terminate if starting failed
-                self._terminate_pod(pod_id)
-                return False
-
-    def _attempt_new_pod_creation(self) -> bool:
+    def manage(self) -> str | bool:
         """
-        Iterates through configured GPU types and attempts to create a new pod.
+        Orchestrates the primary goal: ensure one named pod is running.
 
-        :return: True if a pod was successfully created and validated, False otherwise.
-        :rtype: bool
+        Finds the first matching pod. If found, handles its state (starts if stopped,
+        validates). If not found, attempts to create a new one.
+
+        :return: The pod ID (str) if a pod is successfully running at the end, False otherwise.
+        :rtype: str | bool
         """
-        self.log.info("No suitable existing pod found. Attempting to create a new one.")
-        retries = (
-            self.config.get("create_gpu_retries") or const.DEFAULT_CREATE_GPU_RETRIES
-        )
-        wait = (
-            self.config.get("create_retry_wait_seconds")
-            or const.DEFAULT_CREATE_RETRY_WAIT_SECONDS
-        )
-        gpu_types: list[str] = self.config.get(const.GPU_TYPES, [])
-        if not gpu_types:
-            self.log.error(
-                "No GPU types specified in configuration. Cannot create pod."
-            )
-            return False
-
-        for gpu_type in gpu_types:
-            for x in range(retries, retries + 1):
-                self.log.info(
-                    f"Attempting to create pod with GPU type '{gpu_type}' (attempt {x}/{retries})..."
-                )
-                new_pod_id = self._create_pod(gpu_type)
-                if new_pod_id:
-                    # Validate the newly created pod
-                    try:
-                        new_pod_details = runpod.get_pod(new_pod_id)
-                        if self.debug:
-                            pprint.pprint(new_pod_details)
-                        if new_pod_details.get(const.POD_NAME_API) == self.pod_name:
-                            self.log.info(
-                                f"Pod '{self.pod_name}' created successfully with GPU type '{gpu_type}' and validated."
-                            )
-                            return True
-                        else:
-                            self.log.warning(
-                                f"Pod {new_pod_id} created but failed validation (name mismatch or no GPUs). Terminating..."
-                            )
-                            self._terminate_pod(new_pod_id)
-                    except Exception as e:
-                        self.log.error(
-                            f"Error validating newly created pod {new_pod_id}: {e}. Terminating..."
-                        )
-                        self._terminate_pod(new_pod_id)
-                else:
-                    self.log.warning(
-                        f"Failed to initiate pod creation with GPU type '{gpu_type}'. Trying next type in {wait} seconds..."
-                    )
-                    time.sleep(wait)
-
-        self.log.error("All GPU options exhausted. Failed to create a persistent pod.")
-        return False
-
-    def manage(self) -> bool:
-        """
-        Executes the main logic to manage the persistent pod.
-
-        Checks for an existing pod, handles it, or attempts to create a new one.
-
-        :return: True if a pod is successfully running with GPUs, False otherwise.
-        :rtype: bool
-        """
-        self.log.info("Starting persistent pod management...")
-        try:
-            # NOTE: get_pods() has a bad return signature, thus the linter ignore below.
-            pods: list[dict[str, Any]] = runpod.get_pods()  # pyright: ignore[reportAssignmentType]
-            self.log.debug(f"Retrieved {len(pods)} pods from RunPod API.")
-        except Exception as e:
-            self.log.critical(f"Failed to retrieve pods from RunPod API: {e}")
-            return False
-        existing_pod = self._get_pod_by_name(pods)
+        self.log.info("Starting singleton pod management...")
+        existing_pod = self.find_first_pod_by_name()
         if existing_pod:
-            if self._handle_existing_pod(existing_pod):
-                return True
+            pod_id = self._handle_existing_pod(existing_pod)
+            if pod_id:
+                self.log.info(f"Existing pod {pod_id} is running and valid.")
+                return pod_id
             else:
-                self.log.info(
-                    "Existing pod was terminated or invalid. Proceeding to create a new pod."
+                self.log.warning(
+                    "Handling existing pod failed (likely terminated). Attempting to create a new one."
                 )
+        else:
+            self.log.info("No existing pod found with the specified name.")
         return self._attempt_new_pod_creation()
 
-    def perform_cleanup_actions(self) -> None:
+    def perform_cleanup_actions(self) -> bool:
         """
-        Performs stop and/or terminate actions on pods matching the configured name.
+        Orchestrates stopping and/or terminating pods based on flags.
 
-        Stop actions are performed first on running pods.
-        Terminate actions are performed on all matching pods regardless of state.
+        Finds all pods matching the configured name. If the stop flag is set,
+        stops any running pods found. If the terminate flag is set, terminates
+        all pods found.
+
+        :return: True if the process completed without internal errors, False otherwise.
+                 Note: API call success/failure is logged within this method.
+        :rtype: bool
         """
-        self.log.info("Performing cleanup actions...")
-        matching_pods = self._get_all_pods_by_name()
-
+        self.log.info("Starting cleanup actions...")
+        matching_pods = self.find_all_pods_by_name()
         if not matching_pods:
             self.log.info("No pods found matching the name. No cleanup actions needed.")
-            return
+            return True
 
-        # --- Stop Action ---
         if self.stop:
-            self.log.info(f"Processing --stop action for pod name '{self.pod_name}'.")
+            self.log.info(f"Processing stop action for pod name '{self.pod_name}'.")
             running_pods_to_stop = [
                 pod
                 for pod in matching_pods
@@ -410,47 +204,429 @@ class RunpodSingletonManager:
                 )
                 for pod in running_pods_to_stop:
                     pod_id = pod[const.POD_ID]
-                    self._stop_pod(pod_id)
+                    try:
+                        self.log.info(f"Attempting to stop pod {pod_id}...")
+                        response = self.client.stop_pod(pod_id)
+                        if self.log.isEnabledFor(logging.DEBUG):
+                            self.log.debug(f"Stop API response for {pod_id}:")
+                            pprint.pprint(response)
+                        self.log.info(f"Stop command sent for pod {pod_id}.")
+                    except Exception as e:
+                        self.log.error(f"Error stopping pod {pod_id}: {e}")
             else:
                 self.log.info("No running pods found matching the name to stop.")
 
-        # --- Terminate Action ---
         if self.terminate:
             self.log.info(
-                f"Attempting to terminate all {len(matching_pods)} pods matching the name '{self.pod_name}'."
+                f"Processing terminate action for {len(matching_pods)} pods matching name '{self.pod_name}'."
             )
             for pod in matching_pods:
                 pod_id = pod[const.POD_ID]
-                self._terminate_pod(pod_id)
+                try:
+                    self.log.warning(f"Attempting to terminate pod {pod_id}...")
+                    response = self.client.terminate_pod(pod_id)
+                    if self.log.isEnabledFor(logging.DEBUG):
+                        self.log.debug(f"Terminate API response for {pod_id}:")
+                        pprint.pprint(response)
+                    self.log.info(f"Terminate command sent for pod {pod_id}.")
+                except Exception as e:
+                    self.log.error(f"Error terminating pod {pod_id}: {e}")
 
-    def run(self) -> None:
-        if self.stop or self.terminate:
-            try:
-                self.perform_cleanup_actions()
-                self.log.info("Cleanup actions completed.")
-                sys.exit(const.EXIT_SUCCESS)
-            except Exception as e:
-                self.log.critical(
-                    f"An unexpected error occurred during cleanup actions: {e}",
-                    exc_info=self.debug,
-                )
-                sys.exit(const.EXIT_FAILURE)
+        self.log.info("Cleanup actions processing finished.")
+        return True
 
-        # Default action: manage the singleton pod
+    def _get_all_pods_from_api(self) -> list[dict[str, Any]]:
+        """
+        Helper to call the API client to get all pods.
+
+        :return: A list of pod dictionaries from the API.
+        :rtype: list[dict[str, Any]]
+        :raises Exception: If the API call fails.
+        """
+        self.log.debug("Retrieving all pods from RunPod API...")
         try:
-            success = self.manage()
-            if success:
-                self.log.info("Singleton pod management completed successfully.")
-                sys.exit(const.EXIT_SUCCESS)
-            else:
-                self.log.error("Pod management failed.")
-                sys.exit(const.EXIT_FAILURE)
+            pods = self.client.get_pods()
+            self.log.debug(f"Retrieved {len(pods)} pods.")
+            if self.log.isEnabledFor(logging.DEBUG):
+                 pprint.pprint(pods)
+            return pods
         except Exception as e:
-            self.log.critical(
-                f"An unexpected error occurred during pod management: {e}",
-                exc_info=self.debug,
+            self.log.error(f"Failed to retrieve pods from RunPod API: {e}")
+            raise
+
+    def find_first_pod_by_name(self) -> dict[str, Any] | None:
+        """
+        Finds the first pod matching the configured name.
+
+        :return: The first matching pod dictionary, or None if not found.
+        :rtype: dict[str, Any] | None
+        """
+        self.log.debug(f"Searching for first pod matching name '{self.pod_name}'...")
+        try:
+            all_pods = self._get_all_pods_from_api()
+        except Exception:
+            return None
+
+        for pod in all_pods:
+            if pod.get(const.POD_NAME_API) == self.pod_name:
+                self.log.debug(f"Found first matching pod: ID {pod.get(const.POD_ID)}")
+                if self.log.isEnabledFor(logging.DEBUG):
+                    pprint.pprint(pod)
+                return pod
+
+        self.log.info(f"No pod found matching name '{self.pod_name}'.")
+        return None
+
+    def find_all_pods_by_name(self) -> list[dict[str, Any]]:
+        """
+        Finds all pods matching the configured name.
+
+        :return: A list of all matching pod dictionaries.
+        :rtype: list[dict[str, Any]]
+        """
+        self.log.debug(f"Searching for all pods matching name '{self.pod_name}'...")
+        try:
+            all_pods = self._get_all_pods_from_api()
+        except Exception:
+            return []
+
+        matching_pods = [
+            pod for pod in all_pods if pod.get(const.POD_NAME_API) == self.pod_name
+        ]
+        self.log.info(f"Found {len(matching_pods)} pods matching name '{self.pod_name}'.")
+        if self.log.isEnabledFor(logging.DEBUG) and matching_pods:
+            self.log.debug(f"Matching pod IDs: {[p.get(const.POD_ID) for p in matching_pods]}")
+            pprint.pprint(matching_pods)
+        return matching_pods
+
+    def _handle_existing_pod(self, pod: dict[str, Any]) -> str | bool:
+        """
+        Manages an existing pod based on its status.
+
+        :param pod: The dictionary representing the existing pod.
+        :type pod: dict[str, Any]
+        Checks status, calls client.resume_pod() if stopped, validates state,
+        calls client.terminate_pod() if invalid or if resume fails.
+
+        :param pod: The dictionary representing the existing pod.
+        :type pod: dict[str, Any]
+        :return: The pod ID if the pod is running and valid after handling, False otherwise.
+        :rtype: str | bool
+        """
+        pod_id: str = pod[const.POD_ID]
+        pod_status = pod.get(const.POD_STATUS)
+        self.log.info(
+            f"Handling existing pod '{self.pod_name}' (ID: {pod_id}) with status: {pod_status}"
+        )
+
+        if pod_status == const.POD_STATUS_RUNNING:
+            self.log.info(f"Pod {pod_id} is already running and valid.")
+            return pod_id
+
+        # If pod is not running, attempt to resume it
+        self.log.info(f"Pod {pod_id} status is '{pod_status}'. Attempting to resume...")
+        try:
+            resume_response = self.client.resume_pod(pod_id, gpu_count=self.gpu_count)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(f"Resume API response for {pod_id}:")
+                pprint.pprint(resume_response)
+            self.log.debug(f"Resume command sent for pod {pod_id}.")
+
+            self.log.info(f"Validating status of pod {pod_id} after resume attempt...")
+            updated_pod_info = self.client.get_pod(pod_id)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(f"Updated pod info for {pod_id}:")
+                pprint.pprint(updated_pod_info)
+
+            if updated_pod_info.get(const.POD_STATUS) == const.POD_STATUS_RUNNING:
+                self.log.info(f"Pod {pod_id} resumed successfully and is RUNNING.")
+                return pod_id
+            else:
+                self.log.warning(
+                    f"Pod {pod_id} did not reach RUNNING status after resume attempt (current status: {updated_pod_info.get(const.POD_STATUS)}). Terminating..."
+                )
+                self._terminate_pod_silently(pod_id)
+                return False
+
+        except Exception as e:
+            self.log.error(f"Error during resume/validation for pod {pod_id}: {e}")
+            self.log.warning(f"Terminating pod {pod_id} due to resume/validation error.")
+            self._terminate_pod_silently(pod_id)
+            return False
+
+    def _attempt_new_pod_creation(self) -> str | bool:
+        """
+        Attempts to create a new pod, iterating through configured GPU types.
+
+        :return: The ID of the successfully created and validated pod, or False otherwise.
+        :rtype: str | bool
+        """
+        self.log.info("Attempting to create a new pod.")
+        if not self.gpu_types:
+            self.log.error("No GPU types specified in configuration. Cannot create pod.")
+            return False
+
+        for gpu_type in self.gpu_types:
+            for attempt in range(1, self.create_retries + 1):
+                self.log.info(
+                    f"Attempting to create pod with GPU type '{gpu_type}' (attempt {attempt}/{self.create_retries})..."
+                )
+                new_pod_id = self._create_pod_attempt(gpu_type)
+
+                if new_pod_id:
+                    if self._validate_new_pod(new_pod_id):
+                        self.log.info(
+                            f"Pod '{self.pod_name}' (ID: {new_pod_id}) created and validated successfully with GPU '{gpu_type}'."
+                        )
+                        return new_pod_id
+                    else:
+                        self.log.warning(
+                            f"Validation failed for newly created pod {new_pod_id}. It has been terminated."
+                        )
+                else:
+                    self.log.warning(
+                        f"Pod creation attempt {attempt} failed for GPU type '{gpu_type}'."
+                    )
+
+                if attempt < self.create_retries:
+                    self.log.debug(f"Waiting {self.create_wait} seconds before next attempt...")
+                    time.sleep(self.create_wait)
+
+            if gpu_type != self.gpu_types[-1]:
+                 self.log.debug(f"Waiting {self.create_wait} seconds before trying next GPU type...")
+                 time.sleep(self.create_wait)
+
+
+        self.log.error(
+            f"All creation attempts failed for all specified GPU types ({self.gpu_types})."
+        )
+        return False
+
+    def _create_pod_attempt(self, gpu_type_id: str) -> str | None:
+        """
+        Performs a single attempt to create a pod with a specific GPU type.
+
+        :param gpu_type_id: The GPU type ID to use for this attempt.
+        :type gpu_type_id: str
+        Calls client.create_pod() with parameters derived from the config.
+
+        :param gpu_type_id: The GPU type ID to use for this attempt.
+        :type gpu_type_id: str
+        :return: The new pod ID if the creation API call is successful and returns an ID, None otherwise.
+        :rtype: str | None
+        """
+        self.log.debug(f"Initiating create_pod API call for GPU type '{gpu_type_id}'.")
+        # Construct kwargs, prioritizing specific config values over defaults
+        create_params = {
+            "name": self.pod_name,
+            "image_name": self.config[const.IMAGE_NAME],
+            "gpu_type_id": gpu_type_id,
+            "gpu_count": self.gpu_count,
+            "container_disk_in_gb": self.config[const.CONTAINER_DISK_IN_GB],
+            "cloud_type": self.config.get(const.CLOUD_TYPE, const.DEFAULT_CLOUD_TYPE),
+            "support_public_ip": self.config.get(const.SUPPORT_PUBLIC_IP, const.DEFAULT_SUPPORT_PUBLIC_IP),
+            "start_ssh": self.config.get(const.START_SSH, const.DEFAULT_START_SSH),
+            "volume_in_gb": self.config.get(const.VOLUME_IN_GB, const.DEFAULT_VOLUME_IN_GB),
+            "min_vcpu_count": self.config.get(const.MIN_VCPU_COUNT, const.DEFAULT_MIN_VCPU_COUNT),
+            "min_memory_in_gb": self.config.get(const.MIN_MEMORY_IN_GB, const.DEFAULT_MIN_MEMORY_IN_GB),
+            "docker_args": self.config.get(const.DOCKER_ARGS, const.DEFAULT_DOCKER_ARGS),
+            "volume_mount_path": self.config.get(const.VOLUME_MOUNT_PATH, const.DEFAULT_VOLUME_MOUNT_PATH),
+            # Optional parameters - only include if present in config
+            **{k: v for k, v in {
+                const.DATA_CENTER_ID: self.config.get(const.DATA_CENTER_ID),
+                const.COUNTRY_CODE: self.config.get(const.COUNTRY_CODE),
+                const.PORTS: self.config.get(const.PORTS),
+                const.ENV: self.config.get(const.ENV),
+                const.TEMPLATE_ID: self.config.get(const.TEMPLATE_ID),
+                const.NETWORK_VOLUME_ID: self.config.get(const.NETWORK_VOLUME_ID),
+                const.ALLOWED_CUDA_VERSIONS: self.config.get(const.ALLOWED_CUDA_VERSIONS),
+                const.MIN_DOWNLOAD: self.config.get(const.MIN_DOWNLOAD),
+                const.MIN_UPLOAD: self.config.get(const.MIN_UPLOAD),
+            }.items() if v is not None}
+        }
+        if self.log.isEnabledFor(logging.DEBUG):
+            self.log.debug("Create pod parameters:")
+            pprint.pprint(create_params)
+
+        try:
+            response = self.client.create_pod(**create_params)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug("Create pod API response:")
+                pprint.pprint(response)
+
+            new_pod_id = response.get(const.POD_ID)
+            if new_pod_id:
+                self.log.info(f"Pod creation initiated via API. New Pod ID: {new_pod_id}")
+                return new_pod_id
+            else:
+                self.log.error(
+                    f"Pod creation API call succeeded but did not return an ID. Response: {response}"
+                )
+                return None
+        except Exception as e:
+            self.log.error(f"API error creating pod with GPU {gpu_type_id}: {e}")
+            return None
+
+    def _validate_new_pod(self, pod_id: str) -> bool:
+        """
+        Validates a newly created pod.
+
+        :param pod_id: The ID of the pod to validate.
+        :type pod_id: str
+        Calls client.get_pod() and checks if the pod details (name, status)
+        match the expected state after creation. Terminates the pod if validation fails.
+
+        :param pod_id: The ID of the pod to validate.
+        :type pod_id: str
+        :return: True if the pod is valid, False otherwise.
+        :rtype: bool
+        """
+        self.log.info(f"Validating newly created pod {pod_id}...")
+        try:
+            pod_details = self.client.get_pod(pod_id)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(f"Pod details for validation ({pod_id}):")
+                pprint.pprint(pod_details)
+
+            pod_name_matches = pod_details.get(const.POD_NAME_API) == self.pod_name
+            pod_is_running = pod_details.get(const.POD_STATUS) == const.POD_STATUS_RUNNING
+
+            if pod_name_matches and pod_is_running:
+                self.log.info(f"Pod {pod_id} validation successful.")
+                return True
+            else:
+                self.log.warning(
+                    f"Pod {pod_id} validation failed. Name matches: {pod_name_matches} (Expected: '{self.pod_name}', Got: '{pod_details.get(const.POD_NAME_API)}'). Is running: {pod_is_running} (Status: '{pod_details.get(const.POD_STATUS)}'). Terminating pod..."
+                )
+                self._terminate_pod_silently(pod_id)
+                return False
+        except Exception as e:
+            self.log.error(f"Error during validation of pod {pod_id}: {e}")
+            self.log.warning(f"Terminating pod {pod_id} due to validation error.")
+            self._terminate_pod_silently(pod_id)
+            return False
+
+    def _terminate_pod_silently(self, pod_id: str) -> None:
+        """
+        Terminates a pod and logs errors, but does not raise exceptions.
+
+        :param pod_id: The ID of the pod to terminate.
+        :type pod_id: str
+        """
+        try:
+            self.log.warning(f"Terminating pod {pod_id} silently...")
+            self.client.terminate_pod(pod_id)
+            self.log.info(f"Terminate command sent for pod {pod_id}.")
+        except Exception as e:
+            self.log.error(f"Failed to terminate pod {pod_id} silently: {e}")
+
+
+class RunpodSingletonManager:
+    """
+    Orchestrates the setup process and delegates execution to PodLifecycleManager.
+    Serves as the primary class for programmatic use and command-line entry.
+    """
+
+    def __init__(
+        self,
+        config_path: Path,
+        api_key: str | None,
+        stop: bool = False,
+        terminate: bool = False,
+        debug: bool = False,
+    ):
+        """
+        Initializes the RunpodSingletonManager.
+
+        Loads configuration, sets up logging, initializes the API client,
+        and prepares for execution.
+
+        :param config_path: Path to the YAML configuration file.
+        :type config_path: Path
+        :param api_key: The RunPod API key (optional, falls back to env var).
+        :type api_key: str | None
+        :param stop: Flag indicating if stop actions should be performed.
+        :type stop: bool
+        :param terminate: Flag indicating if terminate actions should be performed.
+        :type terminate: bool
+        :param debug: Flag to enable debug logging.
+        :type debug: bool
+        :raises FileNotFoundError: If the config file is not found.
+        :raises yaml.YAMLError: If the config file is invalid.
+        :raises RuntimeError: If the API key cannot be found.
+        """
+        self.config_path: Path = config_path
+        self.stop: bool = stop
+        self.terminate: bool = terminate
+        self.debug: bool = debug
+        self.log: logging.Logger = Logger(self.__class__.__name__, debug=self.debug)
+
+        self.log.debug(f"Loading configuration from: {self.config_path}")
+        self.config: dict[str, Any] = load_config(self.config_path)
+        self.log.debug("Configuration loaded successfully.")
+
+        self.client: RunpodApiClient = self._setup_api_client(api_key)
+        self.log.info("RunpodSingletonManager initialized.")
+
+    def _setup_api_client(self, api_key: str | None) -> RunpodApiClient:
+        """
+        Retrieves the API key and initializes the RunpodApiClient.
+
+        Prioritizes the provided api_key argument, then the RUNPOD_API_KEY
+        environment variable.
+
+        :param api_key: API key passed during initialization (optional).
+        :type api_key: str | None
+        :return: An initialized RunpodApiClient instance.
+        :rtype: RunpodApiClient
+        :raises RuntimeError: If no API key is found.
+        """
+        self.log.debug("Setting up RunPod API client...")
+        found_api_key = api_key or os.environ.get("RUNPOD_API_KEY")
+        if not found_api_key:
+            self.log.error("RunPod API key not found in arguments or environment variables.")
+            raise RuntimeError(
+                "RunPod API key not found. Provide it via --api-key or set RUNPOD_API_KEY environment variable."
             )
-            sys.exit(const.EXIT_FAILURE)
+        self.log.debug("API key found. Initializing client.")
+        return RunpodApiClient(api_key=found_api_key)
+
+    def run(self) -> str | bool:
+        """
+        Executes the main logic: either cleanup actions or pod management.
+
+        Instantiates PodLifecycleManager and delegates the work based on the
+        stop/terminate flags set during initialization. Catches unexpected exceptions
+        during execution.
+
+        :return: For manage mode: The pod ID (str) on success, False on failure.
+                 For cleanup mode: True on success, False on failure.
+                 Returns False if an unexpected exception occurs.
+        :rtype: str | bool
+        """
+        self.log.debug("RunpodSingletonManager run() started.")
+        result: str | bool = False
+        try:
+            manager = PodLifecycleManager(
+                self.client, self.config, self.log, self.stop, self.terminate
+            )
+            if self.stop or self.terminate:
+                self.log.info("Executing cleanup actions...")
+                result = manager.perform_cleanup_actions()
+                self.log.info(f"Cleanup actions completed with result: {result}")
+            else:
+                self.log.info("Executing pod management...")
+                result = manager.manage()
+                if isinstance(result, str):
+                    self.log.info(f"Pod management successful. Pod ID: {result}")
+                else:
+                    self.log.warning("Pod management failed.")
+            return result
+        except Exception as e:
+            self.log.error(
+                f"An unexpected error occurred during execution: {e}", exc_info=self.debug
+            )
+            return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -506,13 +682,31 @@ def load_config(config_path: Path) -> dict[str, Any]:
 
 def main() -> None:
     """
-    Main entry point for the script. Parses arguments, loads config,
-    and runs the pod management logic.
+    Main entry point for the script. Parses arguments, instantiates the manager,
+    runs the core logic, and handles final exit codes and top-level exceptions.
     """
-    args = parse_args()
-    config = load_config(args.config)
-    manager = RunpodSingletonManager(config, args.api_key, args.stop, args.terminate, args.debug)
-    manager.run()
+    exit_code = const.EXIT_FAILURE
+    args = None
+    try:
+        args = parse_args()
+        manager = RunpodSingletonManager(
+            args.config, args.api_key, args.stop, args.terminate, args.debug
+        )
+        success = manager.run()
+        exit_code = const.EXIT_SUCCESS if success else const.EXIT_FAILURE
+
+    except SystemExit as e:
+        # Argparse calls sys.exit() on argument error, catch it to set exit code
+        # Argparse already prints the error message.
+        exit_code = e.code or const.EXIT_FAILURE # Use code from SystemExit if available
+    except Exception as e:
+        print(f"\nCritical error during script execution: {e}", file=sys.stderr)
+        if args and args.debug:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        exit_code = const.EXIT_FAILURE
+    finally:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":
