@@ -299,14 +299,57 @@ class PodLifecycleManager:
             pprint.pprint(matching_pods)
         return matching_pods
 
+    def _attempt_resume_pod(self, pod_id: str) -> bool:
+        """
+        Attempts to resume a specific pod.
+
+        :param pod_id: The ID of the pod to resume.
+        :type pod_id: str
+        :return: True if the resume API call was initiated successfully, False otherwise.
+        :rtype: bool
+        """
+        self.log.info(f"Attempting to resume pod {pod_id}...")
+        try:
+            resume_response = self.client.resume_pod(pod_id, gpu_count=self.gpu_count)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(f"Resume API response for {pod_id}:")
+                pprint.pprint(resume_response)
+            self.log.debug(f"Resume command sent for pod {pod_id}.")
+            return True
+        except Exception as e:
+            self.log.error(f"API error resuming pod {pod_id}: {e}")
+            return False
+
+    def _validate_resumed_pod(self, pod_id: str) -> bool:
+        """
+        Validates if a pod has reached the RUNNING state after a resume attempt.
+
+        :param pod_id: The ID of the pod to validate.
+        :type pod_id: str
+        :return: True if the pod is RUNNING, False otherwise.
+        :rtype: bool
+        """
+        self.log.info(f"Validating status of pod {pod_id} after resume attempt...")
+        try:
+            updated_pod_info = self.client.get_pod(pod_id)
+            if self.log.isEnabledFor(logging.DEBUG):
+                self.log.debug(f"Updated pod info for {pod_id}:")
+                pprint.pprint(updated_pod_info)
+            if updated_pod_info.get(const.POD_STATUS) == const.POD_STATUS_RUNNING:
+                self.log.info(f"Pod {pod_id} resumed successfully and is RUNNING.")
+                return True
+            else:
+                self.log.warning(
+                    f"Pod {pod_id} did not reach RUNNING status after resume attempt (current status: {updated_pod_info.get(const.POD_STATUS)})."
+                )
+                return False
+        except Exception as e:
+            self.log.error(f"API error validating pod {pod_id} after resume: {e}")
+            return False
+
     def _handle_existing_pod(self, pod: dict[str, Any]) -> str | bool:
         """
         Manages an existing pod based on its status.
-
-        :param pod: The dictionary representing the existing pod.
-        :type pod: dict[str, Any]
-        Checks status, calls client.resume_pod() if stopped, validates state,
-        calls client.terminate_pod() if invalid or if resume fails.
 
         :param pod: The dictionary representing the existing pod.
         :type pod: dict[str, Any]
@@ -320,37 +363,18 @@ class PodLifecycleManager:
         )
 
         if pod_status == const.POD_STATUS_RUNNING:
-            self.log.info(f"Pod {pod_id} is already running and valid.")
+            self.log.info(f"Pod {pod_id} is already running.")
             return pod_id
 
-        # If pod is not running, attempt to resume it
-        self.log.info(f"Pod {pod_id} status is '{pod_status}'. Attempting to resume...")
-        try:
-            resume_response = self.client.resume_pod(pod_id, gpu_count=self.gpu_count)
-            if self.log.isEnabledFor(logging.DEBUG):
-                self.log.debug(f"Resume API response for {pod_id}:")
-                pprint.pprint(resume_response)
-            self.log.debug(f"Resume command sent for pod {pod_id}.")
-
-            self.log.info(f"Validating status of pod {pod_id} after resume attempt...")
-            updated_pod_info = self.client.get_pod(pod_id)
-            if self.log.isEnabledFor(logging.DEBUG):
-                self.log.debug(f"Updated pod info for {pod_id}:")
-                pprint.pprint(updated_pod_info)
-
-            if updated_pod_info.get(const.POD_STATUS) == const.POD_STATUS_RUNNING:
-                self.log.info(f"Pod {pod_id} resumed successfully and is RUNNING.")
+        if self._attempt_resume_pod(pod_id):
+            if self._validate_resumed_pod(pod_id):
                 return pod_id
             else:
-                self.log.warning(
-                    f"Pod {pod_id} did not reach RUNNING status after resume attempt (current status: {updated_pod_info.get(const.POD_STATUS)}). Terminating..."
-                )
+                self.log.warning(f"Validation failed after resuming pod {pod_id}. Terminating...")
                 self._terminate_pod_silently(pod_id)
                 return False
-
-        except Exception as e:
-            self.log.error(f"Error during resume/validation for pod {pod_id}: {e}")
-            self.log.warning(f"Terminating pod {pod_id} due to resume/validation error.")
+        else:
+            self.log.warning(f"Resume attempt failed for pod {pod_id}. Terminating...")
             self._terminate_pod_silently(pod_id)
             return False
 
@@ -369,38 +393,52 @@ class PodLifecycleManager:
         for gpu_type in self.gpu_types:
             for attempt in range(1, self.create_retries + 1):
                 self.log.info(
-                    f"Attempting to create pod with GPU type '{gpu_type}' (attempt {attempt}/{self.create_retries})..."
+                    f"Processing GPU type '{gpu_type}' (attempt {attempt}/{self.create_retries})..."
                 )
-                new_pod_id = self._create_pod_attempt(gpu_type)
-
-                if new_pod_id:
-                    if self._validate_new_pod(new_pod_id):
-                        self.log.info(
-                            f"Pod '{self.pod_name}' (ID: {new_pod_id}) created and validated successfully with GPU '{gpu_type}'."
-                        )
-                        return new_pod_id
-                    else:
-                        self.log.warning(
-                            f"Validation failed for newly created pod {new_pod_id}. It has been terminated."
-                        )
-                else:
-                    self.log.warning(
-                        f"Pod creation attempt {attempt} failed for GPU type '{gpu_type}'."
-                    )
-
+                pod_id = self._create_and_validate_pod_with_gpu(gpu_type)
+                if pod_id:
+                    return pod_id
+                self.log.warning(
+                    f"Create/validate attempt {attempt} failed for GPU type '{gpu_type}'."
+                )
                 if attempt < self.create_retries:
-                    self.log.debug(f"Waiting {self.create_wait} seconds before next attempt...")
+                    self.log.info(f"Waiting {self.create_wait} seconds before next attempt for '{gpu_type}'...")
                     time.sleep(self.create_wait)
-
+                else:
+                    self.log.warning(f"All {self.create_retries} attempts failed for GPU type '{gpu_type}'.")
             if gpu_type != self.gpu_types[-1]:
-                 self.log.debug(f"Waiting {self.create_wait} seconds before trying next GPU type...")
+                 self.log.info(f"Waiting {self.create_wait} seconds before trying next GPU type...")
                  time.sleep(self.create_wait)
-
-
         self.log.error(
-            f"All creation attempts failed for all specified GPU types ({self.gpu_types})."
+            f"All creation attempts failed for all specified GPU types: {self.gpu_types}."
         )
         return False
+
+    def _create_and_validate_pod_with_gpu(self, gpu_type: str) -> str | None:
+        """
+        Attempts to create a pod with a specific GPU type and validates it.
+
+        :param gpu_type: The GPU type ID to use for this attempt.
+        :type gpu_type: str
+        :return: The pod ID if creation and validation are successful, None otherwise.
+        :rtype: str | None
+        """
+        self.log.info(f"Attempting to create and validate pod with GPU type '{gpu_type}'...")
+        new_pod_id = self._create_pod_attempt(gpu_type)
+        if new_pod_id:
+            if self._validate_new_pod(new_pod_id):
+                self.log.info(
+                    f"Pod '{self.pod_name}' (ID: {new_pod_id}) created and validated successfully with GPU '{gpu_type}'."
+                )
+                return new_pod_id
+            else:
+                self.log.warning(
+                    f"Validation failed for newly created pod {new_pod_id} with GPU '{gpu_type}'. Pod has been terminated."
+                )
+                return None
+        else:
+            self.log.warning(f"Pod creation attempt failed for GPU type '{gpu_type}'.")
+            return None
 
     def _create_pod_attempt(self, gpu_type_id: str) -> str | None:
         """
@@ -408,15 +446,10 @@ class PodLifecycleManager:
 
         :param gpu_type_id: The GPU type ID to use for this attempt.
         :type gpu_type_id: str
-        Calls client.create_pod() with parameters derived from the config.
-
-        :param gpu_type_id: The GPU type ID to use for this attempt.
-        :type gpu_type_id: str
         :return: The new pod ID if the creation API call is successful and returns an ID, None otherwise.
         :rtype: str | None
         """
         self.log.debug(f"Initiating create_pod API call for GPU type '{gpu_type_id}'.")
-        # Construct kwargs, prioritizing specific config values over defaults
         create_params = {
             "name": self.pod_name,
             "image_name": self.config[const.IMAGE_NAME],
