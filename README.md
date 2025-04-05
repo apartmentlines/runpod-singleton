@@ -6,13 +6,14 @@ A Python utility to manage a single, persistent RunPod pod instance based on a c
 
 This tool simplifies the management of a dedicated RunPod pod. It automates the following tasks:
 
-1.  **Check Existence:** Verifies if a pod with the configured name already exists.
-2.  **Check Status:** If the pod exists, checks if it's running.
-3.  **Start Stopped Pod:** If the pod exists but is stopped, it attempts to resume it.
-4.  **Create New Pod:** If the pod doesn't exist, it attempts to create a new one using a prioritized list of GPU types specified in the configuration. It iterates through the list until a pod is successfully created or all options are exhausted.
-5.  **Retry Logic:** Includes basic retry logic for pod creation attempts.
+1. **Check Existence:** Verifies if a pod with the configured name already exists.
+2. **Check Status:** If the pod exists, checks if it's running.
+3. **Start Stopped Pod:** If the pod exists but is stopped, it attempts to resume it.
+4. **Terminate Failed Starts:** If the pod fails to restart (e.g. no available GPUs) it attempts to terminate it.
+4. **Create New Pod:** If the pod doesn't exist, it attempts to create a new one using a prioritized list of GPU types specified in the configuration. It iterates through the list until a pod is successfully created or all options are exhausted.
+5. **Retry Logic:** Includes basic retry logic for pod creation attempts.
 
-This is useful for scenarios where you need a specific pod configuration to be consistently available without manual intervention.
+This is useful for scenarios where you need a specific pod configuration to be intermittently available. In particular, it allows you resume the pod without worrying about GPU availability.
 
 ## Installation
 
@@ -30,6 +31,8 @@ pip install -e .[dev]
 ```
 
 ## Usage
+
+### Command line
 
 The primary way to use the tool is via the command-line script `runpod-singleton`.
 
