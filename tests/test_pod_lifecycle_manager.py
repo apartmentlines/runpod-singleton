@@ -463,6 +463,96 @@ def test_manage_no_pod_creation_succeeds_but_validation_fails(
     assert result is False
 
 
+@patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
+def test_manage_initial_get_pods_fails_attempts_create(
+    mock_sleep, pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, sample_config: dict[str, Any]
+):
+    """Test manage() attempts creation if the initial get_pods API call fails."""
+    gpu_type_1 = sample_config[const.GPU_TYPES][0]
+    # Simulate get_pods failing initially
+    mock_api_client.get_pods.side_effect = Exception("Initial API Error")
+
+    # Mock successful creation after the initial failure
+    new_pod_id = "new_pod_after_get_fail"
+    mock_api_client.create_pod.return_value = {"id": new_pod_id}
+    mock_api_client.get_pod.return_value = { # Mock validation call for the new pod
+        const.POD_ID: new_pod_id,
+        const.POD_NAME_API: sample_config[const.POD_NAME],
+        const.POD_STATUS: const.POD_STATUS_RUNNING,
+    }
+
+    result = pod_lifecycle_manager.manage()
+
+    # Assertions for initial failure
+    mock_api_client.get_pods.assert_called_once() # Should be called by find_first_pod_by_name
+    pod_lifecycle_manager.log.error.assert_called_once_with(
+        "Failed to retrieve pods from RunPod API: Initial API Error"
+    )
+
+    # Assertions for successful creation part (should proceed to this)
+    expected_create_args = {
+        "name": sample_config[const.POD_NAME], "image_name": sample_config[const.IMAGE_NAME], "gpu_type_id": gpu_type_1,
+        "gpu_count": sample_config[const.GPU_COUNT], "container_disk_in_gb": sample_config[const.CONTAINER_DISK_IN_GB],
+        "cloud_type": const.DEFAULT_CLOUD_TYPE, "support_public_ip": const.DEFAULT_SUPPORT_PUBLIC_IP, "start_ssh": const.DEFAULT_START_SSH,
+        "volume_in_gb": const.DEFAULT_VOLUME_IN_GB, "min_vcpu_count": const.DEFAULT_MIN_VCPU_COUNT, "min_memory_in_gb": const.DEFAULT_MIN_MEMORY_IN_GB,
+        "docker_args": const.DEFAULT_DOCKER_ARGS, "volume_mount_path": const.DEFAULT_VOLUME_MOUNT_PATH,
+    }
+    mock_api_client.create_pod.assert_called_once_with(**expected_create_args)
+    mock_api_client.get_pod.assert_called_once_with(new_pod_id) # Validation call
+    mock_api_client.resume_pod.assert_not_called()
+    mock_api_client.terminate_pod.assert_not_called()
+
+    assert result == new_pod_id
+
+
+@patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
+def test_manage_no_pod_creation_retry_succeeds_same_gpu(
+    mock_sleep, pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, sample_config: dict[str, Any], mock_logger: MagicMock
+):
+    """Test manage() retries creation on the same GPU and succeeds."""
+    # Configure retries
+    pod_lifecycle_manager.create_retries = 2
+    gpu_type_1 = sample_config[const.GPU_TYPES][0]
+
+    mock_api_client.get_pods.return_value = [] # No existing pods
+
+    # Mock _create_pod_attempt to fail first time, succeed second time for gpu_type_1
+    # Mock _validate_new_pod to succeed when creation succeeds
+    created_pod_id = "new_pod_retry_id"
+    mock_create_attempt = MagicMock(
+        side_effect=[False, created_pod_id] # Fail first, succeed second
+    )
+    mock_validate = MagicMock(return_value=True)
+    pod_lifecycle_manager._create_pod_attempt = mock_create_attempt
+    pod_lifecycle_manager._validate_new_pod = mock_validate
+
+    result = pod_lifecycle_manager.manage()
+
+    mock_api_client.get_pods.assert_called_once()
+    assert mock_create_attempt.call_count == 2
+    mock_create_attempt.assert_has_calls([call(gpu_type_1), call(gpu_type_1)])
+    mock_validate.assert_called_once_with(created_pod_id)
+    mock_sleep.assert_called_once_with(pod_lifecycle_manager.create_wait)
+    assert result == created_pod_id
+
+
+def test_manage_no_pod_empty_gpu_types_fails(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test manage() fails correctly if gpu_types list is empty."""
+    pod_lifecycle_manager.gpu_types = [] # Override config
+    mock_api_client.get_pods.return_value = [] # No existing pods
+
+    result = pod_lifecycle_manager.manage()
+
+    mock_api_client.get_pods.assert_called_once()
+    mock_logger.error.assert_called_once_with(
+        "No GPU types specified in configuration. Cannot create pod."
+    )
+    mock_api_client.create_pod.assert_not_called()
+    assert result is False
+
+
 # --- perform_cleanup_actions() Tests ---
 
 def test_perform_cleanup_no_flags(
@@ -534,4 +624,46 @@ def test_perform_cleanup_no_matching_pods(
     mock_api_client.get_pods.assert_called_once()
     mock_api_client.stop_pod.assert_not_called()
     mock_api_client.terminate_pod.assert_not_called()
+    assert result is True
+
+
+def test_perform_cleanup_stop_api_error_continues(
+    pod_lifecycle_manager_stop: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test cleanup logs error and continues if stop_pod API fails for one pod."""
+    mock_api_client.get_pods.return_value = [RUNNING_POD, MATCHING_STOPPED_POD_2]
+    error_message = "Stop API unavailable"
+    mock_api_client.stop_pod.side_effect = Exception(error_message)
+
+    result = pod_lifecycle_manager_stop.perform_cleanup_actions()
+
+    mock_api_client.get_pods.assert_called_once()
+    mock_api_client.stop_pod.assert_called_once_with(RUNNING_POD[const.POD_ID])
+    mock_logger.error.assert_called_once_with(
+        f"Error stopping pod {RUNNING_POD[const.POD_ID]}: {error_message}"
+    )
+    mock_api_client.terminate_pod.assert_not_called()
+    assert result is True
+
+
+def test_perform_cleanup_terminate_api_error_continues(
+    pod_lifecycle_manager_terminate: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test cleanup logs error and continues if terminate_pod API fails for one pod."""
+    mock_api_client.get_pods.return_value = [RUNNING_POD, MATCHING_STOPPED_POD_2]
+    error_message = "Terminate API unavailable"
+    mock_api_client.terminate_pod.side_effect = [Exception(error_message), MagicMock()] # Fail first, succeed second
+
+    result = pod_lifecycle_manager_terminate.perform_cleanup_actions()
+
+    mock_api_client.get_pods.assert_called_once()
+    mock_api_client.stop_pod.assert_not_called()
+    assert mock_api_client.terminate_pod.call_count == 2
+    mock_api_client.terminate_pod.assert_has_calls(
+        [call(RUNNING_POD[const.POD_ID]), call(MATCHING_STOPPED_POD_2[const.POD_ID])],
+        any_order=True
+    )
+    mock_logger.error.assert_called_once_with(
+        f"Error terminating pod {RUNNING_POD[const.POD_ID]}: {error_message}"
+    )
     assert result is True
