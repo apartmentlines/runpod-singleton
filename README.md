@@ -1,10 +1,10 @@
 # RunPod Singleton Manager
 
-A Python utility to manage a single, persistent RunPod pod instance based on a configuration file. It ensures that a pod with a specific name exists and is running.
+A Python utility to manage a single, persistent [RunPod](https://www.runpod.io) pod instance based on a configuration file. It ensures that a pod with a specific name exists and is running.
 
 ## Purpose
 
-This tool simplifies the management of a dedicated RunPod pod. It automates the following tasks:
+This tool simplifies the management of a dedicated [RunPod](https://www.runpod.io) pod. It automates the following tasks:
 
 1. **Check Existence:** Verifies if a pod with the configured name already exists.
 2. **Check Status:** If the pod exists, checks if it's running.
@@ -17,7 +17,7 @@ This is useful for scenarios where you need a specific pod configuration to be i
 
 ## Requirements
 
-* Python 3.10+
+* [Python](https://www.python.org) 3.10+
 
 ## Installation
 
@@ -132,5 +132,5 @@ env:
 
 ## Environment Variables
 
-*   `RUNPOD_API_KEY`: Your RunPod API key. Can be used instead of the `--api-key` argument.
+*   `RUNPOD_API_KEY`: Your [RunPod API key](https://www.runpod.io/console/user/settings). Can be used instead of the `--api-key` argument.
 *   Configuration file environment variables: If you use the `!ENV ${VAR_NAME}` syntax in your `config.yaml`, the corresponding environment variables must be set when running the script.
