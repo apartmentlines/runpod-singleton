@@ -15,12 +15,15 @@ This tool simplifies the management of a dedicated RunPod pod. It automates the 
 
 This is useful for scenarios where you need a specific pod configuration to be intermittently available. In particular, it allows you resume the pod without worrying about GPU availability.
 
+## Requirements
+
+* Python 3.10+
+
 ## Installation
 
 You can install the package using pip:
 
 ```bash
-# Ensure you have Python 3.10+
 pip install .
 ```
 
