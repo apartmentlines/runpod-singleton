@@ -406,26 +406,23 @@ class PodLifecycleManager:
                     time.sleep(self.create_wait)
                 else:
                     self.log.warning(f"All {self.create_retries} attempts failed for GPU type '{gpu_type}'.")
-            if gpu_type != self.gpu_types[-1]:
-                 self.log.info(f"Waiting {self.create_wait} seconds before trying next GPU type...")
-                 time.sleep(self.create_wait)
         self.log.error(
             f"All creation attempts failed for all specified GPU types: {self.gpu_types}."
         )
         return False
 
-    def _create_and_validate_pod_with_gpu(self, gpu_type: str) -> str | None:
+    def _create_and_validate_pod_with_gpu(self, gpu_type: str) -> str | bool:
         """
         Attempts to create a pod with a specific GPU type and validates it.
 
         :param gpu_type: The GPU type ID to use for this attempt.
         :type gpu_type: str
         :return: The pod ID if creation and validation are successful, None otherwise.
-        :rtype: str | None
+        :rtype: str | bool
         """
         self.log.info(f"Attempting to create and validate pod with GPU type '{gpu_type}'...")
         new_pod_id = self._create_pod_attempt(gpu_type)
-        if new_pod_id:
+        if type(new_pod_id) is str:
             if self._validate_new_pod(new_pod_id):
                 self.log.info(
                     f"Pod '{self.pod_name}' (ID: {new_pod_id}) created and validated successfully with GPU '{gpu_type}'."
@@ -435,19 +432,19 @@ class PodLifecycleManager:
                 self.log.warning(
                     f"Validation failed for newly created pod {new_pod_id} with GPU '{gpu_type}'. Pod has been terminated."
                 )
-                return None
+                return False
         else:
             self.log.warning(f"Pod creation attempt failed for GPU type '{gpu_type}'.")
-            return None
+            return False
 
-    def _create_pod_attempt(self, gpu_type_id: str) -> str | None:
+    def _create_pod_attempt(self, gpu_type_id: str) -> str | bool:
         """
         Performs a single attempt to create a pod with a specific GPU type.
 
         :param gpu_type_id: The GPU type ID to use for this attempt.
         :type gpu_type_id: str
         :return: The new pod ID if the creation API call is successful and returns an ID, None otherwise.
-        :rtype: str | None
+        :rtype: str | bool
         """
         self.log.debug(f"Initiating create_pod API call for GPU type '{gpu_type_id}'.")
         create_params = {
@@ -495,10 +492,10 @@ class PodLifecycleManager:
                 self.log.error(
                     f"Pod creation API call succeeded but did not return an ID. Response: {response}"
                 )
-                return None
+                return False
         except Exception as e:
             self.log.error(f"API error creating pod with GPU {gpu_type_id}: {e}")
-            return None
+            return False
 
     def _validate_new_pod(self, pod_id: str) -> bool:
         """
