@@ -35,7 +35,6 @@ srt_labeler = [
 
 [project.scripts]
 runpod-singleton = "runpod_singleton.singleton:main"
-runpod-test-callback-server = "runpod_singleton.test_callback_server:main"
 
 [project.optional-dependencies]
 dev = [
