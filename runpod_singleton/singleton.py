@@ -550,6 +550,25 @@ class PodLifecycleManager:
         except Exception as e:
             self.log.error(f"Failed to terminate pod {pod_id} silently: {e}")
 
+    def get_pod_counts(self) -> dict[str, int]:
+        """
+        Counts the total number of pods matching the configured name and how many are running.
+
+        :return: A dictionary with 'total' and 'running' pod counts.
+        :rtype: dict[str, int]
+        :raises Exception: If an unexpected error occurs beyond API retrieval failure.
+        """
+        self.log.debug(f"Getting counts for pods matching name '{self.pod_name}'...")
+        matching_pods = self.find_all_pods_by_name()
+        total_count = len(matching_pods)
+        running_count = sum(
+            1
+            for pod in matching_pods
+            if pod.get(const.POD_STATUS) == const.POD_STATUS_RUNNING
+        )
+        self.log.debug(f"Pod counts: Total={total_count}, Running={running_count}")
+        return {"total": total_count, "running": running_count}
+
 
 class RunpodSingletonManager:
     """
@@ -621,13 +640,24 @@ class RunpodSingletonManager:
         self.log.debug("API key found. Initializing client.")
         return RunpodApiClient(api_key=found_api_key)
 
+    def count_pods(self) -> dict[str, int]:
+        """
+        Retrieves the total and running counts for pods matching the configuration name.
+
+        :return: A dictionary containing 'total' and 'running' counts.
+        :rtype: dict[str, int]
+        :raises Exception: If an error occurs during API interaction or processing.
+        """
+        self.log.info("Retrieving pod counts...")
+        manager = PodLifecycleManager(
+            self.client, self.config, self.log, stop=False, terminate=False
+        )
+        counts = manager.get_pod_counts()
+        return counts
+
     def run(self) -> str | bool:
         """
         Executes the main logic: either cleanup actions or pod management.
-
-        Instantiates PodLifecycleManager and delegates the work based on the
-        stop/terminate flags set during initialization. Catches unexpected exceptions
-        during execution.
 
         :return: For manage mode: The pod ID (str) on success, False on failure.
                  For cleanup mode: True on success, False on failure.
@@ -667,7 +697,8 @@ def parse_args() -> argparse.Namespace:
     :rtype: Namespace
     """
     parser = argparse.ArgumentParser(
-        description="Manage a persistent RunPod singleton instance."
+        description="Manage or count a persistent RunPod singleton instance.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "config", type=Path, help="Path to the YAML configuration file."
@@ -675,20 +706,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--api-key",
         type=str,
+        default=None,
         help="RunPod API key (can also be set via RUNPOD_API_KEY environment variable).",
+    )
+    parser.add_argument(
+        "--count",
+        action="store_true",
+        help="Count total and running pods matching the configured name and exit.",
     )
     parser.add_argument(
         "--stop",
         action="store_true",
-        help="Stop all running pods matching the configured name and exit.",
+        help="Stop all running pods matching the configured name and exit (can be combined with --terminate).",
     )
     parser.add_argument(
         "--terminate",
         action="store_true",
-        help="Terminate all pods matching the configured name and exit.",
+        help="Terminate all pods matching the configured name and exit (can be combined with --stop).",
     )
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
-    return parser.parse_args()
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging."
+    )
+    args = parser.parse_args()
+    if args.count and (args.stop or args.terminate):
+        parser.error("argument --count: not allowed with arguments --stop or --terminate")
+
+    return args
 
 
 def load_config(config_path: Path) -> dict[str, Any]:
@@ -716,22 +761,22 @@ def main() -> None:
     runs the core logic, and handles final exit codes and top-level exceptions.
     """
     exit_code = const.EXIT_FAILURE
-    args = None
+    args = parse_args()
     try:
-        args = parse_args()
         manager = RunpodSingletonManager(
             args.config, args.api_key, args.stop, args.terminate, args.debug
         )
-        success = manager.run()
-        exit_code = const.EXIT_SUCCESS if success else const.EXIT_FAILURE
-
-    except SystemExit as e:
-        # Argparse calls sys.exit() on argument error, catch it to set exit code
-        # Argparse already prints the error message.
-        exit_code = e.code or const.EXIT_FAILURE # Use code from SystemExit if available
+        if args.count:
+            counts = manager.count_pods()
+            pod_name = manager.config.get(const.POD_NAME, "N/A")
+            print(f"Pods matching name '{pod_name}': Total={counts['total']}, Running={counts['running']}")
+            exit_code = const.EXIT_SUCCESS
+        else:
+            success = manager.run()
+            exit_code = const.EXIT_SUCCESS if success else const.EXIT_FAILURE
     except Exception as e:
         print(f"\nCritical error during script execution: {e}", file=sys.stderr)
-        if args and args.debug:
+        if args.debug:
             import traceback
             traceback.print_exc(file=sys.stderr)
         exit_code = const.EXIT_FAILURE
