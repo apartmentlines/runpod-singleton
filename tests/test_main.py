@@ -179,24 +179,23 @@ def test_main_count_mode_success(
 @patch("runpod_singleton.singleton.RunpodSingletonManager")
 @patch("runpod_singleton.singleton.sys.exit")
 @patch("builtins.print")
-def test_main_count_mode_exception(
+def test_main_count_mode_failure(
     mock_print: MagicMock,
     mock_exit: MagicMock,
     mock_manager_class: MagicMock,
     mock_parse_args: MagicMock,
     mock_args: argparse.Namespace,
 ):
-    """Test main handles exception during manager.count_pods()."""
+    """Test main handles failure (False return) from manager.count_pods()."""
     # Set args for count mode
     mock_args.count = True
     mock_args.stop = False
     mock_args.terminate = False
     mock_parse_args.return_value = mock_args
 
-    # Mock manager instance and make count_pods raise an error
+    # Mock manager instance and make count_pods return False
     mock_manager_instance = MagicMock(spec=RunpodSingletonManager)
-    count_exception = RuntimeError("API count failed")
-    mock_manager_instance.count_pods.side_effect = count_exception
+    mock_manager_instance.count_pods.return_value = False
     mock_manager_class.return_value = mock_manager_instance
 
     main()
@@ -207,8 +206,6 @@ def test_main_count_mode_exception(
     )
     mock_manager_instance.count_pods.assert_called_once()
     mock_manager_instance.run.assert_not_called() # run() should not be called
-    # Check error print output
-    mock_print.assert_called_once()
-    assert str(count_exception) in mock_print.call_args[0][0]
-    assert mock_print.call_args[1].get("file") == sys.stderr
+    # Check that the success print was NOT called
+    mock_print.assert_not_called()
     mock_exit.assert_called_once_with(const.EXIT_FAILURE)

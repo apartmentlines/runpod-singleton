@@ -155,6 +155,20 @@ def test_get_all_pods_from_api(
     assert pods == expected_pods
 
 
+def test_get_all_pods_from_api_failure(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test _get_all_pods_from_api returns None and logs error on API failure."""
+    error_message = "API connection failed"
+    mock_api_client.get_pods.side_effect = Exception(error_message)
+    pods = pod_lifecycle_manager._get_all_pods_from_api()
+    mock_api_client.get_pods.assert_called_once()
+    assert pods is None
+    mock_logger.error.assert_called_once_with(
+        f"Failed to retrieve pods from RunPod API: {error_message}"
+    )
+
+
 def test_find_first_pod_by_name_found(
     pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
 ):
@@ -168,11 +182,28 @@ def test_find_first_pod_by_name_found(
 def test_find_first_pod_by_name_not_found(
     pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
 ):
-    """Test find_first_pod_by_name returns None when no match."""
+    """Test find_first_pod_by_name returns {} when no match."""
     mock_api_client.get_pods.return_value = [OTHER_RUNNING_POD]
     found_pod = pod_lifecycle_manager.find_first_pod_by_name()
     mock_api_client.get_pods.assert_called_once()
+    assert found_pod == {}
+
+
+def test_find_first_pod_by_name_api_failure(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test find_first_pod_by_name returns None when API fails."""
+    error_message = "API connection failed during find first"
+    mock_api_client.get_pods.side_effect = Exception(error_message)
+    found_pod = pod_lifecycle_manager.find_first_pod_by_name()
+    mock_api_client.get_pods.assert_called_once()
     assert found_pod is None
+    mock_logger.error.assert_any_call(
+        f"Failed to retrieve pods from RunPod API: {error_message}"
+    )
+    mock_logger.error.assert_any_call(
+        "API call to get pods failed. Cannot search for pod."
+    )
 
 
 def test_find_all_pods_by_name_found(
@@ -199,6 +230,25 @@ def test_find_all_pods_by_name_not_found(
     found_pods = pod_lifecycle_manager.find_all_pods_by_name()
     mock_api_client.get_pods.assert_called_once()
     assert found_pods == []
+
+
+def test_find_all_pods_by_name_api_failure(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test find_all_pods_by_name returns None when API fails."""
+    error_message = "API connection failed during find all"
+    mock_api_client.get_pods.side_effect = Exception(error_message)
+    found_pods = pod_lifecycle_manager.find_all_pods_by_name()
+    mock_api_client.get_pods.assert_called_once()
+    assert found_pods is None
+    # Check that the error from _get_all_pods_from_api was logged
+    mock_logger.error.assert_any_call(
+        f"Failed to retrieve pods from RunPod API: {error_message}"
+    )
+    # Check that the error from find_all_pods_by_name itself was logged
+    mock_logger.error.assert_any_call(
+        "API call to get pods failed. Cannot find matching pods."
+    )
 
 
 # --- manage() Tests ---
@@ -464,45 +514,30 @@ def test_manage_no_pod_creation_succeeds_but_validation_fails(
 
 
 @patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
-def test_manage_initial_get_pods_fails_attempts_create(
-    mock_sleep, pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, sample_config: dict[str, Any]
+def test_manage_api_failure_during_find(
+    mock_sleep, pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
 ):
-    """Test manage() attempts creation if the initial get_pods API call fails."""
-    gpu_type_1 = sample_config[const.GPU_TYPES][0]
-    # Simulate get_pods failing initially
-    mock_api_client.get_pods.side_effect = Exception("Initial API Error")
-
-    # Mock successful creation after the initial failure
-    new_pod_id = "new_pod_after_get_fail"
-    mock_api_client.create_pod.return_value = {"id": new_pod_id}
-    mock_api_client.get_pod.return_value = { # Mock validation call for the new pod
-        const.POD_ID: new_pod_id,
-        const.POD_NAME_API: sample_config[const.POD_NAME],
-        const.POD_STATUS: const.POD_STATUS_RUNNING,
-    }
+    """Test manage() returns False if the initial get_pods API call fails."""
+    error_message = "Initial API Error during manage"
+    # Simulate get_pods failing initially when called by find_first_pod_by_name
+    mock_api_client.get_pods.side_effect = Exception(error_message)
 
     result = pod_lifecycle_manager.manage()
 
-    # Assertions for initial failure
-    mock_api_client.get_pods.assert_called_once() # Should be called by find_first_pod_by_name
-    pod_lifecycle_manager.log.error.assert_called_once_with(
-        "Failed to retrieve pods from RunPod API: Initial API Error"
+    mock_api_client.get_pods.assert_called_once()
+    mock_logger.error.assert_any_call(
+        "API call to list pods failed during search. Cannot manage pod state."
+    )
+    mock_logger.error.assert_any_call(
+        f"Failed to retrieve pods from RunPod API: {error_message}"
     )
 
-    # Assertions for successful creation part (should proceed to this)
-    expected_create_args = {
-        "name": sample_config[const.POD_NAME], "image_name": sample_config[const.IMAGE_NAME], "gpu_type_id": gpu_type_1,
-        "gpu_count": sample_config[const.GPU_COUNT], "container_disk_in_gb": sample_config[const.CONTAINER_DISK_IN_GB],
-        "cloud_type": const.DEFAULT_CLOUD_TYPE, "support_public_ip": const.DEFAULT_SUPPORT_PUBLIC_IP, "start_ssh": const.DEFAULT_START_SSH,
-        "volume_in_gb": const.DEFAULT_VOLUME_IN_GB, "min_vcpu_count": const.DEFAULT_MIN_VCPU_COUNT, "min_memory_in_gb": const.DEFAULT_MIN_MEMORY_IN_GB,
-        "docker_args": const.DEFAULT_DOCKER_ARGS, "volume_mount_path": const.DEFAULT_VOLUME_MOUNT_PATH,
-    }
-    mock_api_client.create_pod.assert_called_once_with(**expected_create_args)
-    mock_api_client.get_pod.assert_called_once_with(new_pod_id) # Validation call
+    mock_api_client.create_pod.assert_not_called()
     mock_api_client.resume_pod.assert_not_called()
     mock_api_client.terminate_pod.assert_not_called()
+    mock_api_client.get_pod.assert_not_called()
 
-    assert result == new_pod_id
+    assert result is False
 
 
 @patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
@@ -669,6 +704,28 @@ def test_perform_cleanup_terminate_api_error_continues(
     assert result is True
 
 
+def test_perform_cleanup_api_failure(
+    pod_lifecycle_manager_stop_terminate: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test cleanup returns False and logs error if find_all_pods_by_name fails."""
+    error_message = "API Error during cleanup find"
+    # Simulate get_pods failing when called by find_all_pods_by_name
+    mock_api_client.get_pods.side_effect = Exception(error_message)
+
+    result = pod_lifecycle_manager_stop_terminate.perform_cleanup_actions()
+
+    mock_api_client.get_pods.assert_called_once()
+    mock_logger.error.assert_any_call(
+        "API call to get pods failed. Cannot perform cleanup actions."
+    )
+    mock_logger.error.assert_any_call(
+        f"Failed to retrieve pods from RunPod API: {error_message}"
+    )
+    mock_api_client.stop_pod.assert_not_called()
+    mock_api_client.terminate_pod.assert_not_called()
+    assert result is False
+
+
 # --- get_pod_counts() Tests ---
 
 def test_get_pod_counts_no_pods(
@@ -712,3 +769,18 @@ def test_get_pod_counts_one_running_one_stopped(
     counts = pod_lifecycle_manager.get_pod_counts()
     pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
     assert counts == {"total": 2, "running": 1}
+
+
+def test_get_pod_counts_api_failure(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock, mock_logger: MagicMock
+):
+    """Test get_pod_counts returns False when find_all_pods_by_name fails."""
+    pod_lifecycle_manager.find_all_pods_by_name = MagicMock(return_value=None)
+
+    counts = pod_lifecycle_manager.get_pod_counts()
+
+    pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
+    mock_logger.error.assert_called_once_with(
+        "API call to get pods failed. Cannot determine pod counts."
+    )
+    assert counts is False

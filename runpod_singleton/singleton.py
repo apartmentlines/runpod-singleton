@@ -159,18 +159,24 @@ class PodLifecycleManager:
         :rtype: str | bool
         """
         self.log.info("Starting singleton pod management...")
-        existing_pod = self.find_first_pod_by_name()
-        if existing_pod:
-            pod_id = self._handle_existing_pod(existing_pod)
+        existing_pod_result = self.find_first_pod_by_name()
+
+        if existing_pod_result is None:
+            self.log.error("API call to list pods failed during search. Cannot manage pod state.")
+            return False
+
+        if existing_pod_result:
+            pod_id = self._handle_existing_pod(existing_pod_result)
             if pod_id:
                 self.log.info(f"Existing pod {pod_id} is running and valid.")
                 return pod_id
             else:
                 self.log.warning(
-                    "Handling existing pod failed (likely terminated). Attempting to create a new one."
+                    "Handling existing pod failed. Attempting to create a new one."
                 )
         else:
-            self.log.info("No existing pod found with the specified name.")
+            self.log.info(f"No existing pod found with name '{self.pod_name}'.")
+
         return self._attempt_new_pod_creation()
 
     def perform_cleanup_actions(self) -> bool:
@@ -187,6 +193,12 @@ class PodLifecycleManager:
         """
         self.log.info("Starting cleanup actions...")
         matching_pods = self.find_all_pods_by_name()
+
+        # Check if the API call failed
+        if matching_pods is None:
+            self.log.error("API call to get pods failed. Cannot perform cleanup actions.")
+            return False
+
         if not matching_pods:
             self.log.info("No pods found matching the name. No cleanup actions needed.")
             return True
@@ -235,12 +247,12 @@ class PodLifecycleManager:
         self.log.info("Cleanup actions processing finished.")
         return True
 
-    def _get_all_pods_from_api(self) -> list[dict[str, Any]]:
+    def _get_all_pods_from_api(self) -> list[dict[str, Any]] | None:
         """
         Helper to call the API client to get all pods.
 
-        :return: A list of pod dictionaries from the API.
-        :rtype: list[dict[str, Any]]
+        :return: A list of pod dictionaries from the API, or None if the call fails.
+        :rtype: list[dict[str, Any]] | None
         :raises Exception: If the API call fails.
         """
         self.log.debug("Retrieving all pods from RunPod API...")
@@ -252,19 +264,21 @@ class PodLifecycleManager:
             return pods
         except Exception as e:
             self.log.error(f"Failed to retrieve pods from RunPod API: {e}")
-            raise
+            return None
 
     def find_first_pod_by_name(self) -> dict[str, Any] | None:
         """
         Finds the first pod matching the configured name.
 
-        :return: The first matching pod dictionary, or None if not found.
+        :return: The first matching pod dictionary, an empty dictionary `{}` if none found,
+                 or None if the API call failed.
         :rtype: dict[str, Any] | None
         """
         self.log.debug(f"Searching for first pod matching name '{self.pod_name}'...")
-        try:
-            all_pods = self._get_all_pods_from_api()
-        except Exception:
+        all_pods = self._get_all_pods_from_api()
+
+        if all_pods is None:
+            self.log.error("API call to get pods failed. Cannot search for pod.")
             return None
 
         for pod in all_pods:
@@ -275,20 +289,21 @@ class PodLifecycleManager:
                 return pod
 
         self.log.info(f"No pod found matching name '{self.pod_name}'.")
-        return None
+        return {}
 
-    def find_all_pods_by_name(self) -> list[dict[str, Any]]:
+    def find_all_pods_by_name(self) -> list[dict[str, Any]] | None:
         """
         Finds all pods matching the configured name.
 
-        :return: A list of all matching pod dictionaries.
-        :rtype: list[dict[str, Any]]
+        :return: A list of all matching pod dictionaries, or None if the API call fails.
+        :rtype: list[dict[str, Any]] | None
         """
         self.log.debug(f"Searching for all pods matching name '{self.pod_name}'...")
-        try:
-            all_pods = self._get_all_pods_from_api()
-        except Exception:
-            return []
+        all_pods = self._get_all_pods_from_api()
+
+        if all_pods is None:
+            self.log.error("API call to get pods failed. Cannot find matching pods.")
+            return None
 
         matching_pods = [
             pod for pod in all_pods if pod.get(const.POD_NAME_API) == self.pod_name
@@ -550,16 +565,22 @@ class PodLifecycleManager:
         except Exception as e:
             self.log.error(f"Failed to terminate pod {pod_id} silently: {e}")
 
-    def get_pod_counts(self) -> dict[str, int]:
+    def get_pod_counts(self) -> dict[str, int] | bool:
         """
         Counts the total number of pods matching the configured name and how many are running.
 
         :return: A dictionary with 'total' and 'running' pod counts.
         :rtype: dict[str, int]
-        :raises Exception: If an unexpected error occurs beyond API retrieval failure.
+        :raises Exception: If an unexpected error occurs.
         """
         self.log.debug(f"Getting counts for pods matching name '{self.pod_name}'...")
         matching_pods = self.find_all_pods_by_name()
+
+        # Check if the API call failed
+        if matching_pods is None:
+            self.log.error("API call to get pods failed. Cannot determine pod counts.")
+            return False
+
         total_count = len(matching_pods)
         running_count = sum(
             1
@@ -768,9 +789,12 @@ def main() -> None:
         )
         if args.count:
             counts = manager.count_pods()
-            pod_name = manager.config.get(const.POD_NAME, "N/A")
-            print(f"Pods matching name '{pod_name}': Total={counts['total']}, Running={counts['running']}")
-            exit_code = const.EXIT_SUCCESS
+            if counts is False:
+                exit_code = const.EXIT_FAILURE
+            else:
+                pod_name = manager.config.get(const.POD_NAME, "N/A")
+                print(f"Pods matching name '{pod_name}': Total={counts['total']}, Running={counts['running']}")
+                exit_code = const.EXIT_SUCCESS
         else:
             success = manager.run()
             exit_code = const.EXIT_SUCCESS if success else const.EXIT_FAILURE

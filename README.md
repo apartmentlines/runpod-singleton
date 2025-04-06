@@ -112,7 +112,8 @@ try:
         debug=True
     )
     counts = count_manager.count_pods()
-    print(f"Pod counts: Total={counts['total']}, Running={counts['running']}")
+    if counts:
+      print(f"Pod counts: Total={counts['total']}, Running={counts['running']}")
 except Exception as e:
     print(f"Failed to retrieve pod counts: {e}")
 

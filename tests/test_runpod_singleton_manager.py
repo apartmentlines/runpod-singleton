@@ -345,27 +345,25 @@ def test_count_pods_success(
     assert result == expected_counts
 
 
-def test_count_pods_propagates_exception(
+def test_count_pods_failure(
     mock_dependencies: dict[str, MagicMock],
     mock_config_path: MagicMock,
     sample_loaded_config: dict[str, Any],
     mock_pod_lifecycle_manager_instance: MagicMock,
 ):
-    """Test count_pods() propagates exceptions from get_pod_counts."""
+    """Test count_pods() returns False when get_pod_counts fails."""
     api_key = "test_key"
-    error_message = "API error during count"
     mock_dependencies["load_config"].return_value = sample_loaded_config
     mock_dependencies["PodLifecycleManager"].return_value = mock_pod_lifecycle_manager_instance
-    mock_pod_lifecycle_manager_instance.get_pod_counts.side_effect = RuntimeError(error_message)
+    mock_pod_lifecycle_manager_instance.get_pod_counts.return_value = False
 
     manager = RunpodSingletonManager(
         config_path=mock_config_path, api_key=api_key
     )
-
-    with pytest.raises(RuntimeError, match=error_message):
-        manager.count_pods()
+    result = manager.count_pods()
 
     mock_dependencies["PodLifecycleManager"].assert_called_once_with(
         manager.client, manager.config, manager.log, False, False
     )
     mock_pod_lifecycle_manager_instance.get_pod_counts.assert_called_once()
+    assert result is False
