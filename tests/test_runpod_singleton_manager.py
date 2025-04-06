@@ -316,3 +316,56 @@ def test_run_catches_exception_in_cleanup(
     mock_logger_instance.error.assert_called_once()
     assert error_message in mock_logger_instance.error.call_args[0][0]
     assert result is False
+
+
+# --- count_pods() Method Tests ---
+
+def test_count_pods_success(
+    mock_dependencies: dict[str, MagicMock],
+    mock_config_path: MagicMock,
+    sample_loaded_config: dict[str, Any],
+    mock_pod_lifecycle_manager_instance: MagicMock,
+):
+    """Test count_pods() calls PodLifecycleManager.get_pod_counts and returns result."""
+    api_key = "test_key"
+    expected_counts = {"total": 5, "running": 2}
+    mock_dependencies["load_config"].return_value = sample_loaded_config
+    mock_dependencies["PodLifecycleManager"].return_value = mock_pod_lifecycle_manager_instance
+    mock_pod_lifecycle_manager_instance.get_pod_counts.return_value = expected_counts
+
+    manager = RunpodSingletonManager(
+        config_path=mock_config_path, api_key=api_key
+    )
+    result = manager.count_pods()
+
+    mock_dependencies["PodLifecycleManager"].assert_called_once_with(
+        manager.client, manager.config, manager.log, False, False
+    )
+    mock_pod_lifecycle_manager_instance.get_pod_counts.assert_called_once()
+    assert result == expected_counts
+
+
+def test_count_pods_propagates_exception(
+    mock_dependencies: dict[str, MagicMock],
+    mock_config_path: MagicMock,
+    sample_loaded_config: dict[str, Any],
+    mock_pod_lifecycle_manager_instance: MagicMock,
+):
+    """Test count_pods() propagates exceptions from get_pod_counts."""
+    api_key = "test_key"
+    error_message = "API error during count"
+    mock_dependencies["load_config"].return_value = sample_loaded_config
+    mock_dependencies["PodLifecycleManager"].return_value = mock_pod_lifecycle_manager_instance
+    mock_pod_lifecycle_manager_instance.get_pod_counts.side_effect = RuntimeError(error_message)
+
+    manager = RunpodSingletonManager(
+        config_path=mock_config_path, api_key=api_key
+    )
+
+    with pytest.raises(RuntimeError, match=error_message):
+        manager.count_pods()
+
+    mock_dependencies["PodLifecycleManager"].assert_called_once_with(
+        manager.client, manager.config, manager.log, False, False
+    )
+    mock_pod_lifecycle_manager_instance.get_pod_counts.assert_called_once()

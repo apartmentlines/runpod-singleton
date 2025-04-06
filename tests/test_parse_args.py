@@ -100,3 +100,40 @@ def test_parse_args_missing_config():
         # Argparse raises SystemExit by default on error
         with pytest.raises(SystemExit):
             parse_args()
+
+
+def test_parse_args_count():
+    """Test parsing with the --count flag."""
+    config_file = "config.yaml"
+    with patch.object(sys, "argv", ["script_name", config_file, "--count"]):
+        args = parse_args()
+        assert args.config == Path(config_file)
+        assert args.api_key is None
+        assert args.count is True
+        assert args.stop is False
+        assert args.terminate is False
+        assert args.debug is False
+
+
+def test_parse_args_count_with_stop_raises_error():
+    """Test that --count and --stop together cause an error."""
+    config_file = "config.yaml"
+    with patch.object(sys, "argv", ["script_name", config_file, "--count", "--stop"]):
+        with pytest.raises(SystemExit):
+            parse_args()
+
+
+def test_parse_args_count_with_terminate_raises_error():
+    """Test that --count and --terminate together cause an error."""
+    config_file = "config.yaml"
+    with patch.object(sys, "argv", ["script_name", config_file, "--count", "--terminate"]):
+        with pytest.raises(SystemExit):
+            parse_args()
+
+
+def test_parse_args_count_with_stop_and_terminate_raises_error():
+    """Test that --count, --stop, and --terminate together cause an error."""
+    config_file = "config.yaml"
+    with patch.object(sys, "argv", ["script_name", config_file, "--count", "--stop", "--terminate"]):
+        with pytest.raises(SystemExit):
+            parse_args()

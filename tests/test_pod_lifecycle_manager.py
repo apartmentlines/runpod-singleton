@@ -667,3 +667,48 @@ def test_perform_cleanup_terminate_api_error_continues(
         f"Error terminating pod {RUNNING_POD[const.POD_ID]}: {error_message}"
     )
     assert result is True
+
+
+# --- get_pod_counts() Tests ---
+
+def test_get_pod_counts_no_pods(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
+):
+    """Test get_pod_counts returns zeros when no matching pods are found."""
+    pod_lifecycle_manager.find_all_pods_by_name = MagicMock(return_value=[]) # Mock the dependency
+    counts = pod_lifecycle_manager.get_pod_counts()
+    pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
+    assert counts == {"total": 0, "running": 0}
+
+
+def test_get_pod_counts_one_running(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
+):
+    """Test get_pod_counts correctly counts one running pod."""
+    pod_lifecycle_manager.find_all_pods_by_name = MagicMock(return_value=[RUNNING_POD])
+    counts = pod_lifecycle_manager.get_pod_counts()
+    pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
+    assert counts == {"total": 1, "running": 1}
+
+
+def test_get_pod_counts_one_stopped(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
+):
+    """Test get_pod_counts correctly counts one stopped pod."""
+    pod_lifecycle_manager.find_all_pods_by_name = MagicMock(return_value=[STOPPED_POD])
+    counts = pod_lifecycle_manager.get_pod_counts()
+    pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
+    assert counts == {"total": 1, "running": 0}
+
+
+def test_get_pod_counts_one_running_one_stopped(
+    pod_lifecycle_manager: PodLifecycleManager, mock_api_client: MagicMock
+):
+    """Test get_pod_counts correctly counts a mix of running and stopped pods."""
+    # Note: find_all_pods_by_name should only return matching pods
+    pod_lifecycle_manager.find_all_pods_by_name = MagicMock(
+        return_value=[RUNNING_POD, MATCHING_STOPPED_POD_2]
+    )
+    counts = pod_lifecycle_manager.get_pod_counts()
+    pod_lifecycle_manager.find_all_pods_by_name.assert_called_once()
+    assert counts == {"total": 2, "running": 1}
