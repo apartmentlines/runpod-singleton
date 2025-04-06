@@ -56,10 +56,10 @@ def test_main_failure_run_returns_false(
     mock_parse_args: MagicMock,
     mock_args: argparse.Namespace,
 ):
-    """Test main execution path when manager.run() returns False."""
+    """Test main execution path when manager.run() returns None (failure)."""
     mock_parse_args.return_value = mock_args
     mock_manager_instance = MagicMock(spec=RunpodSingletonManager)
-    mock_manager_instance.run.return_value = False
+    mock_manager_instance.run.return_value = None
     mock_manager_class.return_value = mock_manager_instance
 
     main()
@@ -187,15 +187,13 @@ def test_main_count_mode_failure(
     mock_args: argparse.Namespace,
 ):
     """Test main handles failure (False return) from manager.count_pods()."""
-    # Set args for count mode
     mock_args.count = True
     mock_args.stop = False
     mock_args.terminate = False
     mock_parse_args.return_value = mock_args
 
-    # Mock manager instance and make count_pods return False
     mock_manager_instance = MagicMock(spec=RunpodSingletonManager)
-    mock_manager_instance.count_pods.return_value = False
+    mock_manager_instance.count_pods.return_value = None
     mock_manager_class.return_value = mock_manager_instance
 
     main()

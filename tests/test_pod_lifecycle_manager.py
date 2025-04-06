@@ -484,7 +484,7 @@ def test_manage_no_pod_creation_fails_all_gpus(
     assert mock_api_client.create_pod.call_count == len(sample_config[const.GPU_TYPES]) # Called for each GPU type
     mock_api_client.get_pod.assert_not_called() # No validation needed
     mock_api_client.terminate_pod.assert_not_called()
-    assert result is False
+    assert result is None
 
 
 @patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
@@ -510,7 +510,7 @@ def test_manage_no_pod_creation_succeeds_but_validation_fails(
     mock_api_client.create_pod.assert_called_once() # Only tries first GPU
     mock_api_client.get_pod.assert_called_once_with(created_pod_id) # Validation call
     mock_api_client.terminate_pod.assert_called_once_with(created_pod_id) # Should terminate failed validation
-    assert result is False
+    assert result is None
 
 
 @patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
@@ -537,7 +537,7 @@ def test_manage_api_failure_during_find(
     mock_api_client.terminate_pod.assert_not_called()
     mock_api_client.get_pod.assert_not_called()
 
-    assert result is False
+    assert result is None
 
 
 @patch("runpod_singleton.singleton.time.sleep", return_value=None) # Mock time.sleep
@@ -555,7 +555,7 @@ def test_manage_no_pod_creation_retry_succeeds_same_gpu(
     # Mock _validate_new_pod to succeed when creation succeeds
     created_pod_id = "new_pod_retry_id"
     mock_create_attempt = MagicMock(
-        side_effect=[False, created_pod_id] # Fail first, succeed second
+        side_effect=[None, created_pod_id]
     )
     mock_validate = MagicMock(return_value=True)
     pod_lifecycle_manager._create_pod_attempt = mock_create_attempt
@@ -585,7 +585,7 @@ def test_manage_no_pod_empty_gpu_types_fails(
         "No GPU types specified in configuration. Cannot create pod."
     )
     mock_api_client.create_pod.assert_not_called()
-    assert result is False
+    assert result is None
 
 
 # --- perform_cleanup_actions() Tests ---
@@ -723,7 +723,7 @@ def test_perform_cleanup_api_failure(
     )
     mock_api_client.stop_pod.assert_not_called()
     mock_api_client.terminate_pod.assert_not_called()
-    assert result is False
+    assert result is None
 
 
 # --- get_pod_counts() Tests ---
@@ -783,4 +783,4 @@ def test_get_pod_counts_api_failure(
     mock_logger.error.assert_called_once_with(
         "API call to get pods failed. Cannot determine pod counts."
     )
-    assert counts is False
+    assert counts is None

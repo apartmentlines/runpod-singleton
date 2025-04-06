@@ -224,7 +224,7 @@ def test_run_calls_cleanup_when_terminate_flag(
     api_key = "test_key"
     mock_dependencies["load_config"].return_value = sample_loaded_config
     mock_dependencies["PodLifecycleManager"].return_value = mock_pod_lifecycle_manager_instance
-    mock_pod_lifecycle_manager_instance.perform_cleanup_actions.return_value = False # Simulate failure
+    mock_pod_lifecycle_manager_instance.perform_cleanup_actions.return_value = None
 
     manager = RunpodSingletonManager(
         config_path=mock_config_path, api_key=api_key, stop=False, terminate=True
@@ -236,7 +236,7 @@ def test_run_calls_cleanup_when_terminate_flag(
     )
     mock_pod_lifecycle_manager_instance.manage.assert_not_called()
     mock_pod_lifecycle_manager_instance.perform_cleanup_actions.assert_called_once()
-    assert result is False # Check return value propagation
+    assert result is None
 
 
 def test_run_calls_cleanup_when_both_flags(
@@ -289,7 +289,7 @@ def test_run_catches_exception_in_manage(
         f"An unexpected error occurred during execution: {error_message}",
         exc_info=True
     )
-    assert result is False # Expect False on exception
+    assert result is None
 
 
 def test_run_catches_exception_in_cleanup(
@@ -315,7 +315,7 @@ def test_run_catches_exception_in_cleanup(
     mock_pod_lifecycle_manager_instance.perform_cleanup_actions.assert_called_once()
     mock_logger_instance.error.assert_called_once()
     assert error_message in mock_logger_instance.error.call_args[0][0]
-    assert result is False
+    assert result is None
 
 
 # --- count_pods() Method Tests ---
@@ -355,7 +355,7 @@ def test_count_pods_failure(
     api_key = "test_key"
     mock_dependencies["load_config"].return_value = sample_loaded_config
     mock_dependencies["PodLifecycleManager"].return_value = mock_pod_lifecycle_manager_instance
-    mock_pod_lifecycle_manager_instance.get_pod_counts.return_value = False
+    mock_pod_lifecycle_manager_instance.get_pod_counts.return_value = None
 
     manager = RunpodSingletonManager(
         config_path=mock_config_path, api_key=api_key
@@ -366,4 +366,4 @@ def test_count_pods_failure(
         manager.client, manager.config, manager.log, False, False
     )
     mock_pod_lifecycle_manager_instance.get_pod_counts.assert_called_once()
-    assert result is False
+    assert result is None

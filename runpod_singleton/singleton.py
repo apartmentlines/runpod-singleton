@@ -148,22 +148,22 @@ class PodLifecycleManager:
         self.create_retries: int = config.get("create_gpu_retries", const.DEFAULT_CREATE_GPU_RETRIES)
         self.create_wait: int = config.get("create_retry_wait_seconds", const.DEFAULT_CREATE_RETRY_WAIT_SECONDS)
 
-    def manage(self) -> str | bool:
+    def manage(self) -> str | None:
         """
         Orchestrates the primary goal: ensure one named pod is running.
 
         Finds the first matching pod. If found, handles its state (starts if stopped,
         validates). If not found, attempts to create a new one.
 
-        :return: The pod ID (str) if a pod is successfully running at the end, False otherwise.
-        :rtype: str | bool
+        :return: The pod ID (str) if a pod is successfully running at the end, None otherwise.
+        :rtype: str | None
         """
         self.log.info("Starting singleton pod management...")
         existing_pod_result = self.find_first_pod_by_name()
 
         if existing_pod_result is None:
             self.log.error("API call to list pods failed during search. Cannot manage pod state.")
-            return False
+            return None
 
         if existing_pod_result:
             pod_id = self._handle_existing_pod(existing_pod_result)
@@ -179,7 +179,7 @@ class PodLifecycleManager:
 
         return self._attempt_new_pod_creation()
 
-    def perform_cleanup_actions(self) -> bool:
+    def perform_cleanup_actions(self) -> bool | None:
         """
         Orchestrates stopping and/or terminating pods based on flags.
 
@@ -187,9 +187,9 @@ class PodLifecycleManager:
         stops any running pods found. If the terminate flag is set, terminates
         all pods found.
 
-        :return: True if the process completed without internal errors, False otherwise.
+        :return: True if the process completed without internal errors, None otherwise.
                  Note: API call success/failure is logged within this method.
-        :rtype: bool
+        :rtype: bool | None
         """
         self.log.info("Starting cleanup actions...")
         matching_pods = self.find_all_pods_by_name()
@@ -197,7 +197,7 @@ class PodLifecycleManager:
         # Check if the API call failed
         if matching_pods is None:
             self.log.error("API call to get pods failed. Cannot perform cleanup actions.")
-            return False
+            return None
 
         if not matching_pods:
             self.log.info("No pods found matching the name. No cleanup actions needed.")
@@ -368,8 +368,8 @@ class PodLifecycleManager:
 
         :param pod: The dictionary representing the existing pod.
         :type pod: dict[str, Any]
-        :return: The pod ID if the pod is running and valid after handling, False otherwise.
-        :rtype: str | bool
+        :return: The pod ID if the pod is running and valid after handling, None otherwise.
+        :rtype: str | None
         """
         pod_id: str = pod[const.POD_ID]
         pod_status = pod.get(const.POD_STATUS)
@@ -387,23 +387,23 @@ class PodLifecycleManager:
             else:
                 self.log.warning(f"Validation failed after resuming pod {pod_id}. Terminating...")
                 self._terminate_pod_silently(pod_id)
-                return False
+                return None
         else:
             self.log.warning(f"Resume attempt failed for pod {pod_id}. Terminating...")
             self._terminate_pod_silently(pod_id)
-            return False
+            return None
 
-    def _attempt_new_pod_creation(self) -> str | bool:
+    def _attempt_new_pod_creation(self) -> str | None:
         """
         Attempts to create a new pod, iterating through configured GPU types.
 
-        :return: The ID of the successfully created and validated pod, or False otherwise.
-        :rtype: str | bool
+        :return: The ID of the successfully created and validated pod, or None otherwise.
+        :rtype: str | None
         """
         self.log.info("Attempting to create a new pod.")
         if not self.gpu_types:
             self.log.error("No GPU types specified in configuration. Cannot create pod.")
-            return False
+            return None
 
         for gpu_type in self.gpu_types:
             for attempt in range(1, self.create_retries + 1):
@@ -424,16 +424,16 @@ class PodLifecycleManager:
         self.log.error(
             f"All creation attempts failed for all specified GPU types: {self.gpu_types}."
         )
-        return False
+        return None
 
-    def _create_and_validate_pod_with_gpu(self, gpu_type: str) -> str | bool:
+    def _create_and_validate_pod_with_gpu(self, gpu_type: str) -> str | None:
         """
         Attempts to create a pod with a specific GPU type and validates it.
 
         :param gpu_type: The GPU type ID to use for this attempt.
         :type gpu_type: str
         :return: The pod ID if creation and validation are successful, None otherwise.
-        :rtype: str | bool
+        :rtype: str | None
         """
         self.log.info(f"Attempting to create and validate pod with GPU type '{gpu_type}'...")
         new_pod_id = self._create_pod_attempt(gpu_type)
@@ -447,19 +447,19 @@ class PodLifecycleManager:
                 self.log.warning(
                     f"Validation failed for newly created pod {new_pod_id} with GPU '{gpu_type}'. Pod has been terminated."
                 )
-                return False
+                return None
         else:
             self.log.warning(f"Pod creation attempt failed for GPU type '{gpu_type}'.")
-            return False
+            return None
 
-    def _create_pod_attempt(self, gpu_type_id: str) -> str | bool:
+    def _create_pod_attempt(self, gpu_type_id: str) -> str | None:
         """
         Performs a single attempt to create a pod with a specific GPU type.
 
         :param gpu_type_id: The GPU type ID to use for this attempt.
         :type gpu_type_id: str
         :return: The new pod ID if the creation API call is successful and returns an ID, None otherwise.
-        :rtype: str | bool
+        :rtype: str | None
         """
         self.log.debug(f"Initiating create_pod API call for GPU type '{gpu_type_id}'.")
         create_params = {
@@ -507,10 +507,10 @@ class PodLifecycleManager:
                 self.log.error(
                     f"Pod creation API call succeeded but did not return an ID. Response: {response}"
                 )
-                return False
+                return None
         except Exception as e:
             self.log.error(f"API error creating pod with GPU {gpu_type_id}: {e}")
-            return False
+            return None
 
     def _validate_new_pod(self, pod_id: str) -> bool:
         """
@@ -565,13 +565,12 @@ class PodLifecycleManager:
         except Exception as e:
             self.log.error(f"Failed to terminate pod {pod_id} silently: {e}")
 
-    def get_pod_counts(self) -> dict[str, int] | bool:
+    def get_pod_counts(self) -> dict[str, int] | None:
         """
         Counts the total number of pods matching the configured name and how many are running.
 
-        :return: A dictionary with 'total' and 'running' pod counts.
-        :rtype: dict[str, int]
-        :raises Exception: If an unexpected error occurs.
+        :return: A dictionary with 'total' and 'running' pod counts, or None if API fails.
+        :rtype: dict[str, int] | None
         """
         self.log.debug(f"Getting counts for pods matching name '{self.pod_name}'...")
         matching_pods = self.find_all_pods_by_name()
@@ -579,7 +578,7 @@ class PodLifecycleManager:
         # Check if the API call failed
         if matching_pods is None:
             self.log.error("API call to get pods failed. Cannot determine pod counts.")
-            return False
+            return None
 
         total_count = len(matching_pods)
         running_count = sum(
@@ -661,13 +660,12 @@ class RunpodSingletonManager:
         self.log.debug("API key found. Initializing client.")
         return RunpodApiClient(api_key=found_api_key)
 
-    def count_pods(self) -> dict[str, int]:
+    def count_pods(self) -> dict[str, int] | None:
         """
         Retrieves the total and running counts for pods matching the configuration name.
 
-        :return: A dictionary containing 'total' and 'running' counts.
-        :rtype: dict[str, int]
-        :raises Exception: If an error occurs during API interaction or processing.
+        :return: A dictionary containing 'total' and 'running' counts, or None on failure.
+        :rtype: dict[str, int] | None
         """
         self.log.info("Retrieving pod counts...")
         manager = PodLifecycleManager(
@@ -676,17 +674,16 @@ class RunpodSingletonManager:
         counts = manager.get_pod_counts()
         return counts
 
-    def run(self) -> str | bool:
+    def run(self) -> str | bool | None:
         """
         Executes the main logic: either cleanup actions or pod management.
 
-        :return: For manage mode: The pod ID (str) on success, False on failure.
-                 For cleanup mode: True on success, False on failure.
-                 Returns False if an unexpected exception occurs.
-        :rtype: str | bool
+        :return: For manage mode: The pod ID (str) on success, None on failure.
+                 For cleanup mode: None on internal failure, True otherwise.
+        :rtype: str | bool | None
         """
         self.log.debug("RunpodSingletonManager run() started.")
-        result: str | bool = False
+        result: str | bool | None = None
         try:
             manager = PodLifecycleManager(
                 self.client, self.config, self.log, self.stop, self.terminate
@@ -698,16 +695,16 @@ class RunpodSingletonManager:
             else:
                 self.log.info("Executing pod management...")
                 result = manager.manage()
-                if isinstance(result, str):
-                    self.log.info(f"Pod management successful. Pod ID: {result}")
-                else:
+                if result is None:
                     self.log.warning("Pod management failed.")
+                else:
+                    self.log.info(f"Pod management successful. Pod ID: {result}")
             return result
         except Exception as e:
             self.log.error(
                 f"An unexpected error occurred during execution: {e}", exc_info=self.debug
             )
-            return False
+            return None
 
 
 def parse_args() -> argparse.Namespace:
@@ -789,7 +786,7 @@ def main() -> None:
         )
         if args.count:
             counts = manager.count_pods()
-            if counts is False:
+            if counts is None:
                 exit_code = const.EXIT_FAILURE
             else:
                 pod_name = manager.config.get(const.POD_NAME, "N/A")

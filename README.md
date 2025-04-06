@@ -96,7 +96,7 @@ manager = RunpodSingletonManager(
     # terminate=False, # Default
     debug=True # Optional: enable debug logging
 )
-result = manager.run() # Returns pod ID on success, False on failure
+result = manager.run() # Returns pod ID on success, None on failure
 
 if result:
     print(f"Pod management successful. Pod ID: {result}")
@@ -126,7 +126,7 @@ cleanup_manager = RunpodSingletonManager(
     terminate=True,
     debug=True
 )
-cleanup_result = cleanup_manager.run() # Returns True on success, False on failure
+cleanup_result = cleanup_manager.run() # Returns True on success, None on failure
 
 if cleanup_result:
     print("Cleanup actions completed successfully.")
