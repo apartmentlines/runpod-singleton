@@ -43,7 +43,7 @@ pip install -e .[dev]
 The primary way to use the tool is via the command-line script `runpod-singleton`.
 
 ```bash
-runpod-singleton <path_to_config.yaml> [--api-key YOUR_API_KEY] [--stop] [--terminate] [--debug]
+runpod-singleton <path_to_config.yaml> [--api-key YOUR_API_KEY] [--count | --stop --terminate] [--debug]
 ```
 
 **Note:** If both `--stop` and `--terminate` are provided, the script will first attempt to stop any running matching pods, and then attempt to terminate all matching pods before exiting.
@@ -54,11 +54,21 @@ For more details, run with the `--help` argument.
 **Example:**
 
 ```bash
+# Default mode: Ensure one pod is running
 # API key can also be passed via the RUNPOD_API_KEY environment variable.
+# The script will exit with code `0` if a pod matching the configuration
+# is successfully running at the end of the execution, and `1` otherwise.
 runpod-singleton config.yaml --api-key $RUNPOD_API_KEY --debug
+
+# Count existing pods
+runpod-singleton config.yaml --count
+
+# Stop/terminate running pods matching the name
+runpod-singleton config.yaml --stop
+runpod-singleton config.yaml --terminate
+runpod-singleton config.yaml --stop --terminate
 ```
 
-The script will exit with code `0` if a pod matching the configuration is successfully running at the end of the execution, and `1` otherwise.
 
 ### Programmatic Usage
 
@@ -92,6 +102,19 @@ if result:
     print(f"Pod management successful. Pod ID: {result}")
 else:
     print(f"Pod management failed.")
+
+# --- Count Mode ---
+print("\nAttempting to count matching pods...")
+try:
+    count_manager = RunpodSingletonManager(
+        config_path=config_file_path,
+        api_key=api_key,
+        debug=True
+    )
+    counts = count_manager.count_pods()
+    print(f"Pod counts: Total={counts['total']}, Running={counts['running']}")
+except Exception as e:
+    print(f"Failed to retrieve pod counts: {e}")
 
 # --- Cleanup Mode (Example: Stop and Terminate) ---
 print("\nAttempting to stop and terminate matching pods...")
