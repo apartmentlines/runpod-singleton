@@ -362,7 +362,7 @@ class PodLifecycleManager:
             self.log.error(f"API error validating pod {pod_id} after resume: {e}")
             return False
 
-    def _handle_existing_pod(self, pod: dict[str, Any]) -> str | bool:
+    def _handle_existing_pod(self, pod: dict[str, Any]) -> str | None:
         """
         Manages an existing pod based on its status.
 
