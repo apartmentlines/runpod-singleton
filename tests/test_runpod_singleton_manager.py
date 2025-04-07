@@ -107,7 +107,7 @@ def test_init_success_api_key_env(
     mock_dependencies["load_config"].return_value = sample_loaded_config
 
     manager = RunpodSingletonManager(
-        config_path=mock_config_path, api_key=None, stop=True, terminate=True
+        config_path=mock_config_path, stop=True, terminate=True
     )
 
     mock_dependencies["Logger"].assert_called_once_with(

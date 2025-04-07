@@ -599,7 +599,7 @@ class RunpodSingletonManager:
     def __init__(
         self,
         config_path: Path,
-        api_key: str | None,
+        api_key: str | None = None,
         stop: bool = False,
         terminate: bool = False,
         debug: bool = False,
