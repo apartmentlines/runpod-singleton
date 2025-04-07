@@ -217,7 +217,7 @@ class PodLifecycleManager:
                 for pod in running_pods_to_stop:
                     pod_id = pod[const.POD_ID]
                     try:
-                        self.log.info(f"Attempting to stop pod {pod_id}...")
+                        self.log.debug(f"Attempting to stop pod {pod_id}...")
                         response = self.client.stop_pod(pod_id)
                         if self.log.isEnabledFor(logging.DEBUG):
                             self.log.debug(f"Stop API response for {pod_id}:")
@@ -235,7 +235,7 @@ class PodLifecycleManager:
             for pod in matching_pods:
                 pod_id = pod[const.POD_ID]
                 try:
-                    self.log.warning(f"Attempting to terminate pod {pod_id}...")
+                    self.log.debug(f"Attempting to terminate pod {pod_id}...")
                     response = self.client.terminate_pod(pod_id)
                     if self.log.isEnabledFor(logging.DEBUG):
                         self.log.debug(f"Terminate API response for {pod_id}:")
@@ -288,7 +288,7 @@ class PodLifecycleManager:
                     pprint.pprint(pod)
                 return pod
 
-        self.log.info(f"No pod found matching name '{self.pod_name}'.")
+        self.log.debug(f"No pod found matching name '{self.pod_name}'.")
         return {}
 
     def find_all_pods_by_name(self) -> list[dict[str, Any]] | None:
@@ -308,7 +308,7 @@ class PodLifecycleManager:
         matching_pods = [
             pod for pod in all_pods if pod.get(const.POD_NAME_API) == self.pod_name
         ]
-        self.log.info(f"Found {len(matching_pods)} pods matching name '{self.pod_name}'.")
+        self.log.debug(f"Found {len(matching_pods)} pods matching name '{self.pod_name}'.")
         if self.log.isEnabledFor(logging.DEBUG) and matching_pods:
             self.log.debug(f"Matching pod IDs: {[p.get(const.POD_ID) for p in matching_pods]}")
             pprint.pprint(matching_pods)
@@ -323,7 +323,7 @@ class PodLifecycleManager:
         :return: True if the resume API call was initiated successfully, False otherwise.
         :rtype: bool
         """
-        self.log.info(f"Attempting to resume pod {pod_id}...")
+        self.log.debug(f"Attempting to resume pod {pod_id}...")
         try:
             resume_response = self.client.resume_pod(pod_id, gpu_count=self.gpu_count)
             if self.log.isEnabledFor(logging.DEBUG):
@@ -344,7 +344,7 @@ class PodLifecycleManager:
         :return: True if the pod is RUNNING, False otherwise.
         :rtype: bool
         """
-        self.log.info(f"Validating status of pod {pod_id} after resume attempt...")
+        self.log.debug(f"Validating status of pod {pod_id} after resume attempt...")
         try:
             updated_pod_info = self.client.get_pod(pod_id)
             if self.log.isEnabledFor(logging.DEBUG):
@@ -373,7 +373,7 @@ class PodLifecycleManager:
         """
         pod_id: str = pod[const.POD_ID]
         pod_status = pod.get(const.POD_STATUS)
-        self.log.info(
+        self.log.debug(
             f"Handling existing pod '{self.pod_name}' (ID: {pod_id}) with status: {pod_status}"
         )
 
@@ -400,14 +400,14 @@ class PodLifecycleManager:
         :return: The ID of the successfully created and validated pod, or None otherwise.
         :rtype: str | None
         """
-        self.log.info("Attempting to create a new pod.")
+        self.log.debug("Attempting to create a new pod.")
         if not self.gpu_types:
             self.log.error("No GPU types specified in configuration. Cannot create pod.")
             return None
 
         for gpu_type in self.gpu_types:
             for attempt in range(1, self.create_retries + 1):
-                self.log.info(
+                self.log.debug(
                     f"Processing GPU type '{gpu_type}' (attempt {attempt}/{self.create_retries})..."
                 )
                 pod_id = self._create_and_validate_pod_with_gpu(gpu_type)
@@ -417,7 +417,7 @@ class PodLifecycleManager:
                     f"Create/validate attempt {attempt} failed for GPU type '{gpu_type}'."
                 )
                 if attempt < self.create_retries:
-                    self.log.info(f"Waiting {self.create_wait} seconds before next attempt for '{gpu_type}'...")
+                    self.log.debug(f"Waiting {self.create_wait} seconds before next attempt for '{gpu_type}'...")
                     time.sleep(self.create_wait)
                 else:
                     self.log.warning(f"All {self.create_retries} attempts failed for GPU type '{gpu_type}'.")
@@ -435,7 +435,7 @@ class PodLifecycleManager:
         :return: The pod ID if creation and validation are successful, None otherwise.
         :rtype: str | None
         """
-        self.log.info(f"Attempting to create and validate pod with GPU type '{gpu_type}'...")
+        self.log.debug(f"Attempting to create and validate pod with GPU type '{gpu_type}'...")
         new_pod_id = self._create_pod_attempt(gpu_type)
         if type(new_pod_id) is str:
             if self._validate_new_pod(new_pod_id):
@@ -526,7 +526,7 @@ class PodLifecycleManager:
         :return: True if the pod is valid, False otherwise.
         :rtype: bool
         """
-        self.log.info(f"Validating newly created pod {pod_id}...")
+        self.log.debug(f"Validating newly created pod {pod_id}...")
         try:
             pod_details = self.client.get_pod(pod_id)
             if self.log.isEnabledFor(logging.DEBUG):
@@ -537,7 +537,7 @@ class PodLifecycleManager:
             pod_is_running = pod_details.get(const.POD_STATUS) == const.POD_STATUS_RUNNING
 
             if pod_name_matches and pod_is_running:
-                self.log.info(f"Pod {pod_id} validation successful.")
+                self.log.debug(f"Pod {pod_id} validation successful.")
                 return True
             else:
                 self.log.warning(
@@ -559,9 +559,9 @@ class PodLifecycleManager:
         :type pod_id: str
         """
         try:
-            self.log.warning(f"Terminating pod {pod_id} silently...")
+            self.log.warning(f"Terminating pod {pod_id}...")
             self.client.terminate_pod(pod_id)
-            self.log.info(f"Terminate command sent for pod {pod_id}.")
+            self.log.debug(f"Terminate command sent for pod {pod_id}.")
         except Exception as e:
             self.log.error(f"Failed to terminate pod {pod_id} silently: {e}")
 
@@ -667,7 +667,7 @@ class RunpodSingletonManager:
         :return: A dictionary containing 'total' and 'running' counts, or None on failure.
         :rtype: dict[str, int] | None
         """
-        self.log.info("Retrieving pod counts...")
+        self.log.debug("Retrieving pod counts...")
         manager = PodLifecycleManager(
             self.client, self.config, self.log, stop=False, terminate=False
         )
