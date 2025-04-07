@@ -635,7 +635,7 @@ class RunpodSingletonManager:
         self.log.debug("Configuration loaded successfully.")
 
         self.client: RunpodApiClient = self._setup_api_client(api_key)
-        self.log.info("RunpodSingletonManager initialized.")
+        self.log.debug("RunpodSingletonManager initialized.")
 
     def _setup_api_client(self, api_key: str | None) -> RunpodApiClient:
         """
