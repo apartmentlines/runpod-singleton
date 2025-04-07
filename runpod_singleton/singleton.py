@@ -795,6 +795,9 @@ def main() -> None:
         else:
             success = manager.run()
             exit_code = const.EXIT_SUCCESS if success else const.EXIT_FAILURE
+    except KeyboardInterrupt:
+        print("\nOperation interrupted by user (Ctrl+C). Exiting.", file=sys.stderr)
+        exit_code = const.EXIT_INTERRUPTED
     except Exception as e:
         print(f"\nCritical error during script execution: {e}", file=sys.stderr)
         if args.debug:
