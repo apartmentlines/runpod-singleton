@@ -1,6 +1,10 @@
 [![Test status](https://github.com/apartmentlines/runpod-singleton/actions/workflows/python-app.yml/badge.svg)](https://github.com/apartmentlines/runpod-singleton/actions/workflows/python-app.yml)
 [![CodeQL](https://github.com/apartmentlines/runpod-singleton/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/apartmentlines/runpod-singleton/actions/workflows/github-code-scanning/codeql)
 
+<div align="center">
+  <img src="logo.png" alt="runpod-singleton logo">
+</div>
+
 # RunPod Singleton Manager
 
 A Python utility to manage a single, persistent [RunPod](https://www.runpod.io) pod instance based on a configuration file. It ensures that a pod with a specific name exists and is running.
