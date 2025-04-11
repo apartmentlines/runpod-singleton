@@ -31,7 +31,7 @@ This is useful for scenarios where you need a specific pod configuration to be i
 You can install the package using pip:
 
 ```bash
-pip install .
+pip install -e .
 ```
 
 Alternatively, for development:
